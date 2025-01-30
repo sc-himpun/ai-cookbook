@@ -1,0 +1,12 @@
+[project]
+name = "building-ai-systems"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ipykernel>=6.29.5",
+    "openai>=1.60.2",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.3",
+]
