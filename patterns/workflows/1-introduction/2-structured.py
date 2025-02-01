@@ -7,7 +7,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 # --------------------------------------------------------------
-# Step 1: Define the response format
+# Step 1: Define the response format in a Pydantic model
 # --------------------------------------------------------------
 
 

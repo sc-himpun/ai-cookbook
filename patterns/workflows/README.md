@@ -8,6 +8,23 @@ Learn more about the theory and practice behind these patterns:
 - [Building Effective Agents](https://www.anthropic.com/research/building-effective-agents) - Anthropic's blog post
 - [Practical LLM Patterns Video Guide](https://youtu.be/tx5OapbK-8A) - Video walkthrough of key concepts by Dave Ebbelaar
 
+## Table of Content
+
+In this tutorial, we’ll cover everything you need to start building AI agents in pure Python. We’ll start with the essential building blocks and then dive into workflow patterns for more reliable systems. To follow along, basic Python skills are recommended, along with familiarity with the OpenAI SDK and an API key. I highly recommend cloning the GitHub repository so you can work through the code step by step. Watch me go through it first, then try it yourself to reinforce your understanding. I move quickly to cover a lot in 45 minutes, but you can always pause, rewind, or ask ChatGPT for help.
+
+Part 1: Building block: The augmented LLM
+
+- Basic LLM calls
+- Structured output
+- Tool use
+- Retrieval
+  
+Part 2: Workflow patterns to build AI systems
+
+- Prompt chaining
+- Routing
+- Parallelization
+
 ## Workflow Patterns
 
 ### Prompt Chaining

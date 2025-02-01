@@ -25,7 +25,7 @@ def search_kb(question: str):
 
 
 # --------------------------------------------------------------
-# Step 1: Call model with get_weather tool defined
+# Step 1: Call model with search_kb tool defined
 # --------------------------------------------------------------
 
 tools = [
