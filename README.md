@@ -15,7 +15,7 @@ Whether you're a learner, a freelancer, or a business looking for AI expertise, 
    [▶︎ Learn Python for AI](https://www.skool.com/data-alchemy)
 
 2. **Ready to start or scale your freelancing career?**  
-   Learn how to land clients and grow your business with:
+   Learn how to land clients and grow your business with
    [▶︎ Start freelancing](https://www.datalumina.com/data-freelancer)
 
 3. **Need expert help on your next project?**  
