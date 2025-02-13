@@ -18,25 +18,33 @@ The whole system runs locally on standard computers and is designed to be extens
 - Chart understanding (Barchart, Piechart, LinePlot, etc)
 - Complex chemistry understanding (Molecular structures)
 
-## Quick Start
+## Getting Started with the Example
 
-### Installation
+### Prerequisites
 
-```bash 
-pip install docling
+1. Install the required packages:
+
+```bash
+pip install -r requirements.txt
 ```
 
-### Basic Usage
+2. Set up your environment variables by creating a `.env` file:
 
-```python
-from docling.document_converter import DocumentConverter
-
-converter = DocumentConverter()
-result = converter.convert("https://arxiv.org/pdf/2408.09869")
-
-markdown_output = result.document.export_to_markdown()
-print(markdown_output)
+```bash
+OPENAI_API_KEY=your_api_key_here
 ```
+
+### Running the Example
+
+Execute the files in order to build and query the document database:
+
+1. Extract document content: `python 1-extraction.py`
+2. Create document chunks: `python 2-chunking.py`
+3. Create embeddings and store in LanceDB: `python 3-embedding.py`
+4. Test basic search functionality: `python 4-search.py`
+5. Launch the Streamlit chat interface: `streamlit run 5-chat.py`
+
+Then open your browser and navigate to `http://localhost:8501` to interact with the document Q&A interface.
 
 ## Document Processing
 
@@ -105,55 +113,3 @@ This means when your RAG system retrieves chunks, they'll have the proper contex
 For full documentation, visit [documentation site](https://docling.readthedocs.io/).
 
 For example notebooks and more detailed guides, check out [GitHub repository](https://github.com/organization/docling).
-
-## Getting Started with the Example
-
-### Prerequisites
-
-1. Install the required packages:
-
-```bash
-pip install -r requirements.txt
-```
-
-2. Set up your environment variables by creating a `.env` file:
-
-```bash
-OPENAI_API_KEY=your_api_key_here
-```
-
-### Running the Example
-
-Execute the files in order to build and query the document database:
-
-Extract document content:
-
-```bash
-python 1-extraction.py
-```
-
-Create document chunks:
-
-```bash
-python 2-chunking.py
-```
-
-Create embeddings and store in LanceDB:
-
-```bash
-python 3-embedding.py
-```
-
-Test basic search functionality:
-
-```bash
-python 4-search.py
-```
-
-Launch the Streamlit chat interface:
-
-```bash
-streamlit run 5-chat.py
-```
-
-Then open your browser and navigate to http://localhost:8501 to interact with the document Q&A interface.
