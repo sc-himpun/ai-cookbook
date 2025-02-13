@@ -1,4 +1,4 @@
-# Docling
+# Building a RAG Pipeline with Docling
 
 [Docling](https://github.com/DS4SD/docling) is a powerful, flexible open source document processing library that converts various document formats into a unified format. It has advanced document understanding capabilities powered by state-of-the-art AI models for layout analysis and table structure recognition.
 
