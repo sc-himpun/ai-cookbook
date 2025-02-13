@@ -90,10 +90,13 @@ target/
 .venv/
 
 # Exclude trained models
-/models/
+models/
 
 # Exclude pyproject.toml
 pyproject.toml
 
 # Exclude uv.lock
 uv.lock
+
+# Exclude LanceDB database
+lancedb/

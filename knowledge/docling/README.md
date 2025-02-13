@@ -11,11 +11,18 @@ The whole system runs locally on standard computers and is designed to be extens
 - **Flexible Output**: Export to HTML, Markdown, JSON, or plain text
 - **High Performance**: Efficient processing on local hardware
 
+## Things They're Working on
+
+- Metadata extraction, including title, authors, references & language
+- Inclusion of Visual Language Models (SmolDocling)
+- Chart understanding (Barchart, Piechart, LinePlot, etc)
+- Complex chemistry understanding (Molecular structures)
+
 ## Quick Start
 
 ### Installation
 
-```bash
+```bash 
 pip install docling
 ```
 
@@ -24,15 +31,11 @@ pip install docling
 ```python
 from docling.document_converter import DocumentConverter
 
-# Initialize converter
 converter = DocumentConverter()
+result = converter.convert("https://arxiv.org/pdf/2408.09869")
 
-# Convert a single document
-result = converter.convert_single("https://arxiv.org/pdf/1706.03762")
-
-# Export to different formats
-markdown_output = result.export_to_markdown()
-json_output = result.export_to_dict()
+markdown_output = result.document.export_to_markdown()
+print(markdown_output)
 ```
 
 ## Document Processing
@@ -48,6 +51,8 @@ json_output = result.export_to_dict()
 | Images | PNG, JPEG, TIFF, BMP |
 | USPTO XML | Patent documents |
 | PMC XML | PubMed Central articles |
+
+Check out this [page](https://ds4sd.github.io/docling/supported_formats/) for an up to date list.
 
 ### Processing Pipeline
 
@@ -70,8 +75,85 @@ For documents requiring text extraction from images, Docling integrates `EasyOCR
 
 For more detailed information about these models and their implementation, you can refer to the [technical documentation](arxiv.org/pdf/2408.09869).
 
+## Chunking
+
+When you're building a RAG (Retrieval Augmented Generation) application, you need to break down documents into smaller, meaningful pieces that can be easily searched and retrieved. But this isn't as simple as just splitting text every X words or characters.
+
+What makes [Docling's chunking](https://ds4sd.github.io/docling/concepts/chunking/) unique is that it understands the actual structure of your document. It has two main approaches:
+
+1. The [Hierarchical Chunker](https://ds4sd.github.io/docling/concepts/chunking/#hierarchical-chunker) is like a smart document analyzer - it knows where the natural "joints" of your document are. Instead of blindly cutting text into fixed-size pieces, it recognizes and preserves important elements like sections, paragraphs, tables, and lists. It maintains the relationship between headers and their content, and keeps related items together (like items in a list).
+
+2. The [Hybrid Chunker](https://ds4sd.github.io/docling/concepts/chunking/#hybrid-chunker) takes this a step further. It starts with the hierarchical chunks but then:
+   - It can split chunks that are too large for your embedding model
+   - It can stitch together chunks that are too small
+   - It works with your specific tokenizer, so the chunks will fit perfectly with your chosen language model
+
+### Why is this great for RAG applications?
+
+Imagine you're building a system to answer questions about technical documents. With basic chunking (like splitting every 500 words), you might cut right through the middle of a table, or separate a header from its content. But Docling's smart chunking:
+
+- Keeps related information together
+- Preserves document structure
+- Maintains context (like headers and captions)
+- Creates chunks that are optimized for your specific embedding model
+- Ensures each chunk is meaningful and self-contained
+
+This means when your RAG system retrieves chunks, they'll have the proper context and structure, leading to more accurate and coherent responses from your language model.
+
 ## Documentation
 
 For full documentation, visit [documentation site](https://docling.readthedocs.io/).
 
 For example notebooks and more detailed guides, check out [GitHub repository](https://github.com/organization/docling).
+
+## Getting Started with the Example
+
+### Prerequisites
+
+1. Install the required packages:
+
+```bash
+pip install -r requirements.txt
+```
+
+2. Set up your environment variables by creating a `.env` file:
+
+```bash
+OPENAI_API_KEY=your_api_key_here
+```
+
+### Running the Example
+
+Execute the files in order to build and query the document database:
+
+Extract document content:
+
+```bash
+python 1-extraction.py
+```
+
+Create document chunks:
+
+```bash
+python 2-chunking.py
+```
+
+Create embeddings and store in LanceDB:
+
+```bash
+python 3-embedding.py
+```
+
+Test basic search functionality:
+
+```bash
+python 4-search.py
+```
+
+Launch the Streamlit chat interface:
+
+```bash
+streamlit run 5-chat.py
+```
+
+Then open your browser and navigate to http://localhost:8501 to interact with the document Q&A interface.
