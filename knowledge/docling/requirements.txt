@@ -6,3 +6,4 @@ pydantic
 docling
 lancedb
 streamlit
+tiktoken
