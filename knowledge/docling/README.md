@@ -81,7 +81,7 @@ The second key model is `TableFormer`, a table structure recognition system that
 
 For documents requiring text extraction from images, Docling integrates `EasyOCR` as an optional component, which operates at 216 dpi for optimal quality but requires about 30 seconds per page. Both the layout analysis and TableFormer models were developed by IBM Research and are publicly available as pre-trained weights on Hugging Face under "ds4sd/docling-models".
 
-For more detailed information about these models and their implementation, you can refer to the [technical documentation](arxiv.org/pdf/2408.09869).
+For more detailed information about these models and their implementation, you can refer to the [technical documentation](https://arxiv.org/pdf/2408.09869).
 
 ## Chunking
 
@@ -110,6 +110,6 @@ This means when your RAG system retrieves chunks, they'll have the proper contex
 
 ## Documentation
 
-For full documentation, visit [documentation site](https://docling.readthedocs.io/).
+For full documentation, visit [documentation site](https://ds4sd.github.io/docling/).
 
-For example notebooks and more detailed guides, check out [GitHub repository](https://github.com/organization/docling).
+For example notebooks and more detailed guides, check out [GitHub repository](https://github.com/DS4SD/docling).
