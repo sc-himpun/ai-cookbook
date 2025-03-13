@@ -15,7 +15,8 @@
 
 1. **Backward Compatibility**: The Responses API is a superset of Chat Completions - everything you can do with Chat Completions can be done with Responses API, plus additional features.
 
-2. **Migration Timeline**: The Responses API will eventually replace the Chat Completions API. OpenAI plans to sunset Chat Completions by the end of 2026, giving developers a transition period.
+2. **Migration Timeline**: The Chat Completions API is not being deprecated and will continue to be supported indefinitely as an industry standard for building AI applications, while the Assistants API (not Chat Completions) is the one planned for eventual deprecation in 2026.
+
 
 3. **Key New Features**:
    - Simplified interface for different interaction types
