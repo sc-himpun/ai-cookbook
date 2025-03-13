@@ -22,12 +22,7 @@ tools = [
 
 response = client.responses.create(
     model="gpt-4o",
-    input=[
-        {
-            "role": "user",
-            "content": "Can you send an email to ilan@example.com and katia@example.com saying hi?",
-        }
-    ],
+    input="Can you send an email to ilan@example.com and katia@example.com saying hi?",
     tools=tools,
 )
 

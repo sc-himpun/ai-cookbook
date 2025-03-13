@@ -52,7 +52,6 @@ print(second_response.output_text)
 response = client.responses.create(
     model="gpt-4o-mini",
     input="tell me a joke",
-    # store=False,
 )
 print(response.output_text)
 
