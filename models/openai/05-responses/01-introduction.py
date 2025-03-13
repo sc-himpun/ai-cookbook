@@ -7,7 +7,24 @@ https://platform.openai.com/docs/api-reference/responses
 """
 
 # --------------------------------------------------------------
-# Basic text example
+# Basic text example with the Chat Completions API
+# --------------------------------------------------------------
+
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[
+        {
+            "role": "user",
+            "content": "Write a one-sentence bedtime story about a unicorn.",
+        }
+    ],
+)
+
+print(response.choices[0].message.content)
+
+
+# --------------------------------------------------------------
+# Basic text example with the Responses API
 # --------------------------------------------------------------
 
 response = client.responses.create(
@@ -34,18 +51,6 @@ response = client.responses.create(
             ],
         },
     ],
-)
-
-print(response.output_text)
-
-# --------------------------------------------------------------
-# Extend models with tools
-# -------------------------------------------------------------
-
-response = client.responses.create(
-    model="gpt-4o",
-    tools=[{"type": "web_search_preview"}],
-    input="What was a positive news story from today?",
 )
 
 print(response.output_text)
