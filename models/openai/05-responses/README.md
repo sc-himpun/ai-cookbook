@@ -18,10 +18,11 @@
 2. **Migration Timeline**: The Responses API will eventually replace the Chat Completions API. OpenAI plans to sunset Chat Completions by the end of 2026, giving developers a transition period.
 
 3. **Key New Features**:
-   - Simplified interface for different interaction types (chat, text, function calls, structured output)
+   - Simplified interface for different interaction types
    - Native support for web search capabilities
-   - Improved reasoning parameters
-   - Built-in file search functionality
+   - A new `developer` role you can use
+   - Improved support for reasoning models
+   - Built-in file/vector search functionality
    - Simplified conversation state management
 
 4. **Available Tools**:
@@ -40,7 +41,7 @@
    - Features that previously required multiple API calls can now be done in single calls
    - The fundamental patterns of retrieval, tools, and memory management still apply
 
-7. **New Agent SDK**: OpenAI has released a new Agent SDK that will replace swarms and other agent frameworks. This provides a standardized way to build AI agents with the Responses API. Learn more at: https://platform.openai.com/docs/guides/agents
+7. **New Agent SDK**: OpenAI has released a new Agent SDK that will replace [Swarm](https://github.com/openai/swarm/tree/main). This provides a standardized way to build AI agents with the Responses API. Learn more at: https://platform.openai.com/docs/guides/agents
 
 8. **Documentation Resources**:
    - Official OpenAI documentation: https://platform.openai.com/docs/api-reference/responses
