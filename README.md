@@ -23,5 +23,5 @@ Whether you're a learner, a freelancer, or a business looking for AI expertise, 
    ▶︎ [Work with me](https://www.datalumina.com/solutions)
 
 4. **Already building AI applications?**  
-   Explore the **GenAI Launchpad**, our production framework for AI systems
+   Explore the **GenAI Launchpad**, our production framework for AI systems  
    ▶︎ [Explore the GenAI Launchpad](https://launchpad.datalumina.com/)
