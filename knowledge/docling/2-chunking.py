@@ -34,3 +34,5 @@ chunker = HybridChunker(
 
 chunk_iter = chunker.chunk(dl_doc=result.document)
 chunks = list(chunk_iter)
+
+len(chunks)

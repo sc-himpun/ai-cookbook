@@ -100,3 +100,6 @@ uv.lock
 
 # Exclude LanceDB database
 lancedb/
+
+# Exclude temporary files
+temp/

@@ -19,5 +19,5 @@ table = db.open_table("docling")
 # Search the table
 # --------------------------------------------------------------
 
-result = table.search(query="pdf").limit(5)
+result = table.search(query="what's docling?", query_type="vector").limit(3)
 result.to_pandas()
