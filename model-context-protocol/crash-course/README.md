@@ -13,7 +13,7 @@ The Model Context Protocol (MCP) is a powerful framework that enables developers
    - Communication protocols
    - Server and client roles
 
-3. [Simple Server Setup](./3-simple-server-setup/README.md)
+3. [Simple Server Setup with Python SDK](./3-simple-server-setup/README.md)
    - Creating a basic MCP server
    - Implementing tools
    - Connecting with clients (SSE and stdio)
