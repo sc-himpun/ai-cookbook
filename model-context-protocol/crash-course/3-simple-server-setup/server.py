@@ -1,4 +1,3 @@
-import os
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 
@@ -21,7 +20,7 @@ def add(a: int, b: int) -> int:
 
 # Run the server
 if __name__ == "__main__":
-    transport = os.getenv("TRANSPORT", "stdio")
+    transport = "sse"
     if transport == "stdio":
         print("Running server with stdio transport")
         mcp.run(transport="stdio")
