@@ -1,4 +1,4 @@
 anthropic
-mcp
+mcp[cli]
 httpx
 python-dotenv
