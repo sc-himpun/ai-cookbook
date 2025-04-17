@@ -19,21 +19,6 @@ def say_hello(name: str) -> str:
     """Say hello to someone"""
     return f"Hello, {name}! Nice to meet you."
 
-@mcp.tool()
-def calculate(operation: str, a: float, b: float) -> str:
-    """Perform a basic calculation"""
-    if operation == "add":
-        return f"{a} + {b} = {a + b}"
-    elif operation == "subtract":
-        return f"{a} - {b} = {a - b}"
-    elif operation == "multiply":
-        return f"{a} * {b} = {a * b}"
-    elif operation == "divide":
-        if b == 0:
-            return "Error: Division by zero"
-        return f"{a} / {b} = {a / b}"
-    else:
-        return f"Unknown operation: {operation}"
 
 if __name__ == "__main__":
     mcp.run()
@@ -74,16 +59,6 @@ async def main():
             for content in hello_result.content:
                 if content.type == "text":
                     print(f"  Result: {content.text}")
-            
-            # Call the calculate tool
-            calc_result = await session.call_tool(
-                "calculate", 
-                {"operation": "add", "a": 5, "b": 3}
-            )
-            print("\nCalling calculate:")
-            for content in calc_result.content:
-                if content.type == "text":
-                    print(f"  Result: {content.text}")
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -113,22 +88,6 @@ mcp = FastMCP("SimpleDemoServer")
 def say_hello(name: str) -> str:
     """Say hello to someone"""
     return f"Hello, {name}! Nice to meet you."
-
-@mcp.tool()
-def calculate(operation: str, a: float, b: float) -> str:
-    """Perform a basic calculation"""
-    if operation == "add":
-        return f"{a} + {b} = {a + b}"
-    elif operation == "subtract":
-        return f"{a} - {b} = {a - b}"
-    elif operation == "multiply":
-        return f"{a} * {b} = {a * b}"
-    elif operation == "divide":
-        if b == 0:
-            return "Error: Division by zero"
-        return f"{a} / {b} = {a / b}"
-    else:
-        return f"Unknown operation: {operation}"
 
 if __name__ == "__main__":
     # Run with HTTP/SSE transport

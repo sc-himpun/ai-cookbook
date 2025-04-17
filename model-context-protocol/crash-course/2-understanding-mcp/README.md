@@ -3,11 +3,6 @@
 ### MCP Architecture Overview
 
 The Model Context Protocol follows a client-host-server architecture:
-
-- **Host**: The application that initiates connections (like Claude Desktop or your Python application)
-- **Clients**: Connectors within the host that maintain 1:1 connections with servers
-- **Servers**: Services that provide context and capabilities 
-
 This separation of concerns allows for modular, composable systems where each server can focus on a specific domain (like file access, web search, or database operations).
 
 - **MCP Hosts**: Programs like Claude Desktop, IDEs, or your python application that want to access data through MCP
@@ -15,6 +10,8 @@ This separation of concerns allows for modular, composable systems where each se
 - **MCP Servers**: Lightweight programs that each expose specific capabilities through the standardized Model Context Protocol (tools, resources, prompts)
 - **Local Data Sources**: Your computer’s files, databases, and services that MCP servers can securely access
 - **Remote Services**: External systems available over the internet (e.g., through APIs) that MCP servers can connect to
+
+This separation of concerns allows for modular, composable systems where each server can focus on a specific domain (like file access, web search, or database operations).
 
 ```mermaid
 ---
@@ -80,13 +77,6 @@ The true power of MCP isn't in introducing new capabilities, but in standardizin
 - **Composability**: Combine multiple servers to create complex capabilities
 - **Ecosystem growth**: Benefit from servers created by others
 
-The MCP ecosystem is already growing rapidly, with servers available for:
-
-- File systems and databases
-- Development tools like Git and GitHub
-- Web search and browser automation
-- AI image generation
-- Knowledge management
-- API integrations
+The MCP ecosystem is already growing rapidly, with servers available many tools. You can find an overview here: [Officially supported servers](https://github.com/modelcontextprotocol/servers)
 
 This means you can leverage existing servers rather than reinventing the wheel, and contribute your own servers to benefit the community.

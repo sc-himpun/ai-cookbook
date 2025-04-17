@@ -33,15 +33,6 @@ async def main():
                 if content.type == "text":
                     print(f"  Result: {content.text}")
 
-            # Call the calculate tool
-            calc_result = await session.call_tool(
-                "calculate", {"operation": "add", "a": 5, "b": 3}
-            )
-            print("\nCalling calculate:")
-            for content in calc_result.content:
-                if content.type == "text":
-                    print(f"  Result: {content.text}")
-
 
 if __name__ == "__main__":
     asyncio.run(main())
