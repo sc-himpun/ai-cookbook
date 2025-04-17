@@ -85,7 +85,7 @@ mcp = FastMCP("MyServer", host="127.0.0.1", port=8050)
 
 if __name__ == "__main__":
     # Run with SSE transport on port 8000
-    mcp.run(transport="sse", host="127.0.0.1", port=8050)
+    mcp.run(transport="sse")
 ```
 
 Then you can run it with:
