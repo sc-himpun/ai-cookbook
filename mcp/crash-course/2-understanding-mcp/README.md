@@ -40,9 +40,9 @@ flowchart LR
 
 MCP defines three core primitives that servers can implement:
 
-1. **Tools**: Model-controlled functions that LLMs can invoke (like API calls, computations)
-2. **Resources**: Application-controlled data that provides context (like file contents, database records)
-3. **Prompts**: User-controlled templates for LLM interactions
+1. [Tools](https://modelcontextprotocol.io/docs/concepts/tools#python): Model-controlled functions that LLMs can invoke (like API calls, computations)
+2. [Resources](https://modelcontextprotocol.io/docs/concepts/resources#python): Application-controlled data that provides context (like file contents, database records)
+3. [Prompts](https://modelcontextprotocol.io/docs/concepts/prompts#python): User-controlled templates for LLM interactions
 
 For Python developers, the most immediately useful primitive is tools, which allow LLMs to perform actions programmatically.
 
