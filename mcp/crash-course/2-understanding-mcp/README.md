@@ -21,27 +21,21 @@ config:
   layout: dagre
 ---
 flowchart LR
- subgraph Stdio["Stdio Transport"]
-        Client1["MCP Client"]
-        Server1["MCP Server"]
+ subgraph Computer["Your Computer"]
+        Client["Host with MCP Client<br>(Claude, IDEs, Tools)"]
+        ServerA["MCP Server A"]
+        ServerB["MCP Server B"]
+        ServerC["MCP Server C"]
+        DataA[("Local<br>Data Source A")]
+        DataB[("Local<br>Data Source B")]
   end
- subgraph SSE["SSE Transport"]
-        Client2["MCP Client"]
-        Server2["MCP Server"]
+ subgraph Internet["Internet"]
+        RemoteC[("Remote<br>Service C")]
   end
- subgraph Local["Local Deployment"]
-        Stdio
-  end
- subgraph Remote["Remote Deployment"]
-        SSE
-  end
-    Client1 -- stdin/stdout<br>(bidirectional) --> Server1
-    Client2 -- HTTP POST<br>(client to server) --> Server2
-    Server2 -- SSE<br>(server to client) --> Client2
-    style Client1 fill:#BBDEFB
-    style Server1 fill:#BBDEFB
-    style Client2 fill:#BBDEFB
-    style Server2 fill:#E1BEE7
+    Client -- MCP Protocol --> ServerA & ServerB & ServerC
+    ServerA <--> DataA
+    ServerB <--> DataB
+    ServerC -- Web APIs --> RemoteC
 ```
 
 MCP defines three core primitives that servers can implement:
@@ -81,26 +75,27 @@ config:
   layout: dagre
 ---
 flowchart LR
-    subgraph Stdio["Stdio Transport"]
+ subgraph Stdio["Stdio Transport"]
         Client1["MCP Client"]
         Server1["MCP Server"]
-        Client1 -- "stdin/stdout<br>(bidirectional)" --> Server1
-    end
-    
-    subgraph SSE["SSE Transport"]
+  end
+ subgraph SSE["SSE Transport"]
         Client2["MCP Client"]
         Server2["MCP Server"]
-        Client2 -- "HTTP POST<br>(client to server)" --> Server2
-        Server2 -- "SSE<br>(server to client)" --> Client2
-    end
-    
-    subgraph Local["Local Deployment"]
+  end
+ subgraph Local["Local Deployment"]
         Stdio
-    end
-    
-    subgraph Remote["Remote Deployment"]
+  end
+ subgraph Remote["Remote Deployment"]
         SSE
-    end
+  end
+    Client1 -- stdin/stdout<br>(bidirectional) --> Server1
+    Client2 -- HTTP POST<br>(client to server) --> Server2
+    Server2 -- SSE<br>(server to client) --> Client2
+    style Client1 fill:#BBDEFB
+    style Server1 fill:#BBDEFB
+    style Client2 fill:#BBDEFB
+    style Server2 fill:#E1BEE7
 ```
 
 If you're familiar with FastAPI, you'll find that implementing an MCP server with SSE transport feels very similar. Both frameworks use HTTP endpoints for receiving requests and support streaming responses using Server-Sent Events. They both allow you to define handlers for specific routes/endpoints and provide async/await patterns for handling requests and generating responses. This similarity makes it easy for FastAPI developers to transition to building MCP servers, as they can leverage their existing knowledge of HTTP, async programming, and streaming responses.
