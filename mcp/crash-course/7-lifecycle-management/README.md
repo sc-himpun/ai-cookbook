@@ -65,7 +65,7 @@ async with ClientSession(read, write) as session:
 
 ## Advanced Lifecycle Management with the Lifespan Object
 
-For more complex applications, MCP provides a powerful feature called the **lifespan object** that helps manage application-level resources throughout the entire lifecycle of an MCP server.
+For more complex applications, MCP provides a feature called the **lifespan object** that helps manage application-level resources throughout the entire lifecycle of an MCP server.
 
 ### What is the Lifespan Object?
 
