@@ -5,7 +5,7 @@ from mcp.server.fastmcp import FastMCP
 # Create an MCP server
 mcp = FastMCP(
     name="Knowledge Base",
-    host="127.0.0.1",  # only used for SSE transport (localhost)
+    host="0.0.0.0",  # only used for SSE transport (localhost)
     port=8050,  # only used for SSE transport (set this to any port)
 )
 

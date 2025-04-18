@@ -1,6 +1,6 @@
 # MCP Crash Course for Python Developers
 
-The Model Context Protocol (MCP) is a powerful framework that enables developers to build AI applications with large language models (LLMs) by providing a standardized way to connect models with external data sources and tools. This crash course will guide you through the fundamentals of MCP, from understanding its core concepts to implementing servers and clients that leverage prompts, resources, and tools. You'll learn how to set up your development environment, create simple servers, integrate with OpenAI models, understand the differences between MCP and traditional function calling, and manage the lifecycle of your MCP applications. Whether you're building chatbots, data analysis tools, or complex AI workflows, this course will give you the practical skills needed to start building with MCP today.
+The Model Context Protocol (MCP) is a powerful framework that enables developers to build AI applications with large language models (LLMs) by providing a standardized way to connect models with external data sources and tools. This crash course will guide you through the fundamentals of MCP, from understanding its core concepts to implementing servers and clients that leverage prompts, resources, and tools.
 
 ## Table of Contents
 
@@ -10,6 +10,7 @@ The Model Context Protocol (MCP) is a powerful framework that enables developers
 4. [OpenAI Integration](./4-openai-integration/README.md)
 5. [MCP vs Function Calling](./5-mcp-vs-function-calling/README.md)
 6. [Lifecycle Management](./6-lifecycle-management/README.md)
+7. [Running with Docker](./7-run-with-docker/README.md)
 
 ## Setting Up Your Development Environment
 
