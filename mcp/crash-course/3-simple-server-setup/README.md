@@ -2,7 +2,7 @@
 
 ### Building Your First MCP Server
 
-Let's create a simple server with a calculator tool:
+Let's create a simple demo server with a tool:
 
 ```python
 # server.py

@@ -18,7 +18,6 @@ def add(a: int, b: int) -> int:
     return a + b
 
 
-
 # Run the server
 if __name__ == "__main__":
     transport = "stdio"
