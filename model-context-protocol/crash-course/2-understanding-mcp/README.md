@@ -8,7 +8,7 @@ This separation of concerns allows for modular, composable systems where each se
 - **MCP Hosts**: Programs like Claude Desktop, IDEs, or your python application that want to access data through MCP
 - **MCP Clients**: Protocol clients that maintain 1:1 connections with servers
 - **MCP Servers**: Lightweight programs that each expose specific capabilities through the standardized Model Context Protocol (tools, resources, prompts)
-- **Local Data Sources**: Your computer’s files, databases, and services that MCP servers can securely access
+- **Local Data Sources**: Your computer's files, databases, and services that MCP servers can securely access
 - **Remote Services**: External systems available over the internet (e.g., through APIs) that MCP servers can connect to
 
 This separation of concerns allows for modular, composable systems where each server can focus on a specific domain (like file access, web search, or database operations).
@@ -97,16 +97,15 @@ flowchart LR
     end
 ```
 
+The key differences between these transport mechanisms:
+
+- **Stdio** uses a single bidirectional channel (stdin/stdout) for all communication
+- **SSE** uses HTTP POST for client-to-server requests and Server-Sent Events for server-to-client responses
+- **Stdio** is typically used for local deployments where the client and server run on the same machine
+- **SSE** enables remote deployments where the client and server can be on different machines or networks
+
+#### SSE and FastAPI Similarities
+
 If you're familiar with FastAPI, you'll find that implementing an MCP server with SSE transport feels very similar. Both frameworks use HTTP endpoints for receiving requests and support streaming responses using Server-Sent Events. They both allow you to define handlers for specific routes/endpoints and provide async/await patterns for handling requests and generating responses. This similarity makes it easy for FastAPI developers to transition to building MCP servers, as they can leverage their existing knowledge of HTTP, async programming, and streaming responses.
 
 ### A New Standard
-
-The true power of MCP isn't in introducing new capabilities, but in standardizing how these capabilities are exposed and consumed. This provides several key advantages:
-
-- **Reusability**: Build a server once, use it with any MCP-compatible client
-- **Composability**: Combine multiple servers to create complex capabilities
-- **Ecosystem growth**: Benefit from servers created by others
-
-The MCP ecosystem is already growing rapidly, with servers available many tools. You can find an overview here: [Officially supported servers](https://github.com/modelcontextprotocol/servers)
-
-This means you can leverage existing servers rather than reinventing the wheel, and contribute your own servers to benefit the community.
