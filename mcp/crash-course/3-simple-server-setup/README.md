@@ -9,7 +9,7 @@ Let's create a simple server with a calculator tool:
 from mcp.server.fastmcp import FastMCP
 
 # Create an MCP server
-mcp = FastMCP("Calculator")
+mcp = FastMCP("DemoServer")
 
 # Simple tool
 @mcp.tool()
