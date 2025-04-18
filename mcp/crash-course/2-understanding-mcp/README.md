@@ -21,21 +21,27 @@ config:
   layout: dagre
 ---
 flowchart LR
- subgraph Computer["Your Computer"]
-        Client["Host with MCP Client<br>(Claude, IDEs, Tools)"]
-        ServerA["MCP Server A"]
-        ServerB["MCP Server B"]
-        ServerC["MCP Server C"]
-        DataA[("Local<br>Data Source A")]
-        DataB[("Local<br>Data Source B")]
+ subgraph Stdio["Stdio Transport"]
+        Client1["MCP Client"]
+        Server1["MCP Server"]
   end
- subgraph Internet["Internet"]
-        RemoteC[("Remote<br>Service C")]
+ subgraph SSE["SSE Transport"]
+        Client2["MCP Client"]
+        Server2["MCP Server"]
   end
-    Client -- MCP Protocol --> ServerA & ServerB & ServerC
-    ServerA <--> DataA
-    ServerB <--> DataB
-    ServerC -- Web APIs --> RemoteC
+ subgraph Local["Local Deployment"]
+        Stdio
+  end
+ subgraph Remote["Remote Deployment"]
+        SSE
+  end
+    Client1 -- stdin/stdout<br>(bidirectional) --> Server1
+    Client2 -- HTTP POST<br>(client to server) --> Server2
+    Server2 -- SSE<br>(server to client) --> Client2
+    style Client1 fill:#BBDEFB
+    style Server1 fill:#BBDEFB
+    style Client2 fill:#BBDEFB
+    style Server2 fill:#E1BEE7
 ```
 
 MCP defines three core primitives that servers can implement:
