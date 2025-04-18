@@ -5,33 +5,11 @@ The Model Context Protocol (MCP) is a powerful framework that enables developers
 ## Table of Contents
 
 1. [Introduction and Context](./1-introduction-and-context/README.md)
-   - Understanding the MCP ecosystem
-   - Key concepts and terminology
-
 2. [Understanding MCP](./2-understanding-mcp/README.md)
-   - Core architecture
-   - Communication protocols
-   - Server and client roles
-
 3. [Simple Server Setup with Python SDK](./3-simple-server-setup/README.md)
-   - Creating a basic MCP server
-   - Implementing tools
-   - Connecting with clients (SSE and stdio)
-
 4. [OpenAI Integration](./4-openai-integration/README.md)
-   - Connecting MCP with OpenAI models
-   - Implementing a client for OpenAI
-   - Handling tool calls and responses
-
 5. [MCP vs Function Calling](./5-mcp-vs-function-calling/README.md)
-   - Comparing MCP with traditional function calling
-   - Advantages and use cases
-   - Implementation differences
-
 6. [Lifecycle Management](./6-lifecycle-management/README.md)
-   - Managing server lifecycles
-   - Error handling and recovery
-   - Best practices for production
 
 ## Setting Up Your Development Environment
 
