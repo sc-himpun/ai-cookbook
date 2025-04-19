@@ -130,12 +130,6 @@ class MCPOpenAIClient:
                     }
                 )
 
-                # For knowledge base, also add as system message for context
-                if tool_call.function.name == "get_knowledge_base":
-                    messages.append(
-                        {"role": "system", "content": result.content[0].text}
-                    )
-
             # Get final response from OpenAI with tool results
             final_response = await self.openai_client.chat.completions.create(
                 model=self.model,

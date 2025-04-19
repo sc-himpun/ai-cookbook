@@ -1,5 +1,5 @@
-mcp[cli]
+mcp[cli]==1.6.0 
+openai==1.75.0
 python-dotenv
-openai
 ipykernel
 httpx
