@@ -1,0 +1,111 @@
+# How to Build Long-Term Memory for AI Agents with mem0
+
+Create a venv with python 3.11>
+Install requirements
+Run code examples
+Run `docker compose up -d` before running the example in the `oss` folder
+
+## What is mem0?
+
+Mem0 is a memory architecture that enables AI agents to maintain coherent, contextually rich conversations over extended periods. Unlike traditional approaches that struggle with fixed context windows, Mem0 intelligently extracts, consolidates, and retrieves only the most salient information from conversations.
+
+You can learn more here: https://mem0.ai/research
+
+### Key Features
+
+- **Two-Phase Memory Pipeline**: Extraction phase captures key facts from conversations, while the Update phase intelligently manages the knowledge base
+- **Selective Memory Formation**: Stores only critical information rather than entire conversation chunks
+- **Intelligent Operations**: Automatically determines whether to add, update, or delete memories
+- **Efficient Retrieval**: Uses vector embeddings to quickly find relevant memories
+- **Graph-Enhanced Option**: Mem0ᵍ variant represents memories as a directed labeled graph for complex relational reasoning
+
+### Performance Benefits
+
+- 26% higher accuracy compared to OpenAI's memory system
+- 91% lower latency than full-context approaches
+- 90% token savings, making it cost-effective at scale
+
+Mem0 makes persistent, structured memory both powerful and practical, enabling AI assistants that truly remember user preferences, adapt to evolving contexts, and maintain coherent interactions across multiple sessions.
+
+## Prompts
+
+You can view the core prompts that power Mem0's memory system here: [prompts.py](https://github.com/mem0ai/mem0/blob/main/mem0/configs/prompts.py)
+
+1. **MEMORY_ANSWER_PROMPT**: This prompt guides the system to answer questions based on retrieved memories, ensuring responses are accurate, concise, and always helpful even when relevant memories aren't found.
+
+2. **FACT_RETRIEVAL_PROMPT**: This is the extraction phase prompt that extracts structured facts from conversations. It identifies personal preferences, details, plans, activities, health information, and professional details from conversations, organizing them into a JSON list format.
+
+3. **DEFAULT_UPDATE_MEMORY_PROMPT**: This handles the update phase, showing how the system manages memory through four operations:
+   - ADD: Creates new memory entries with new IDs
+   - UPDATE: Modifies existing memories while preserving IDs
+   - DELETE: Removes contradicted memories
+   - NONE: Makes no changes when information is already present
+
+4. **PROCEDURAL_MEMORY_SYSTEM_PROMPT**: Creates comprehensive summaries of agent-human interactions with structured metadata.
+
+The `get_update_memory_messages()` function combines retrieved memories with new facts, applying the update logic to maintain a coherent, non-redundant memory store.
+
+These prompts demonstrate how Mem0 transforms conversations into structured memories and intelligently manages them over time.
+
+## Configuration Parameters
+
+Mem0 offers extensive configuration options to customize its behavior according to your needs. These configurations span across different components like vector stores, language models, embedders, and graph stores.
+
+### Complete Configuration Example
+
+```python
+# Complete config
+config = {
+    "vector_store": {
+        "provider": "qdrant",
+        "config": {"host": "localhost", "port": 6333},
+    },
+    "llm": {
+        "provider": "openai",
+        "config": {"api_key": "your-api-key", "model": "gpt-4"},
+    },
+    "embedder": {
+        "provider": "openai",
+        "config": {"api_key": "your-api-key", "model": "text-embedding-3-small"},
+    },
+    "graph_store": {
+        "provider": "neo4j",
+        "config": {
+            "url": "neo4j+s://your-instance",
+            "username": "neo4j",
+            "password": "password",
+        },
+    },
+    "history_db_path": "/path/to/history.db",
+    "version": "v1.1",
+    "custom_fact_extraction_prompt": "Optional custom prompt for fact extraction for memory",
+    "custom_update_memory_prompt": "Optional custom prompt for update memory",
+}
+```
+
+You can then configure the Memory via:
+
+```python
+config = {
+    "vector_store": {
+        "provider": "qdrant",
+        "config": {
+            "host": "localhost",
+            "port": 6333,
+        },
+    },
+}
+m = Memory.from_config(config)
+```
+
+## LLMs
+
+Mem0 includes built-in support for various popular large language models. Memory can utilize the LLM provided by the user, ensuring efficient use for specific needs.
+
+https://docs.mem0.ai/components/llms/overview
+
+## Vector Databases
+
+Mem0 includes built-in support for various popular databases. Memory can utilize the database provided by the user, ensuring efficient use for specific needs.
+
+https://docs.mem0.ai/components/vectordbs/overview

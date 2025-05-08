@@ -100,3 +100,6 @@ lancedb/
 
 # Exclude temporary files
 temp/
+
+# Exclude Qdrant data
+qdrant_data/
