@@ -128,12 +128,12 @@ The process follows these steps:
 1. **Message Parsing**
    - Messages are parsed into a format suitable for processing
    - System messages are filtered out
-   - Source: [main.py](.venv/lib/python3.13/site-packages/mem0/memory/main.py#L89)
+   - Source: `mem0/memory/main.py`
 
 2. **Fact Extraction**
    - The system uses an LLM to extract key facts from the conversation
    - Facts are structured into a JSON format
-   - Source: [main.py](.venv/lib/python3.13/site-packages/mem0/memory/main.py#L89)
+   - Source: `mem0/memory/main.py`
 
 3. **Memory Management**
    - New facts are compared with existing memories
@@ -142,7 +142,7 @@ The process follows these steps:
      - UPDATE existing memories
      - DELETE contradicted memories
      - Do nothing (NONE)
-   - Source: [main.py](.venv/lib/python3.13/site-packages/mem0/memory/main.py#L89)
+   - Source: `mem0/memory/main.py`
 
 4. **Storage**
    - Memories are stored in a vector database for semantic search
@@ -163,57 +163,3 @@ memory.search(query="What do you know about me?", user_id="user123")
 # Get all memories
 memory.get_all(user_id="user123")
 ```
-
-## Key Components
-
-### 1. Vector Store
-- Stores memories with embeddings for semantic search
-- Supports multiple providers (Qdrant, FAISS, etc.)
-- Source: [main.py](.venv/lib/python3.13/site-packages/mem0/memory/main.py#L89)
-
-### 2. LLM Integration
-- Used for fact extraction and memory management
-- Can be configured with different providers
-- Source: [main.py](.venv/lib/python3.13/site-packages/mem0/memory/main.py#L89)
-
-### 3. History Tracking
-- Maintains a record of all memory changes
-- Enables rollback and audit capabilities
-- Source: [main.py](.venv/lib/python3.13/site-packages/mem0/memory/main.py#L89)
-
-## Practical Example
-
-Here's a simple example of how to use the system:
-
-```python
-from mem0 import Memory
-
-# Initialize memory system
-memory = Memory()
-
-# Add a conversation
-messages = [
-    {"role": "user", "content": "I love sci-fi movies"},
-    {"role": "assistant", "content": "I'll remember that you enjoy sci-fi movies"}
-]
-
-# Store the memory
-memory.add(messages, user_id="user123")
-
-# Later, search for related information
-results = memory.search("What movies does the user like?", user_id="user123")
-```
-
-## Key Takeaways
-
-1. **Intelligent Storage**: Don't just store raw conversations - extract and store meaningful facts
-2. **Semantic Search**: Use embeddings to enable natural language search
-3. **Memory Management**: Implement a system to handle updates and contradictions
-4. **History Tracking**: Keep track of changes for debugging and auditing
-
-## Implementation Notes
-
-- The system uses a two-phase process: extraction and update
-- Memories are stored with embeddings for efficient semantic search
-- The system maintains a history of all changes
-- Supports both synchronous and asynchronous operations
