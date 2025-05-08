@@ -163,3 +163,10 @@ memory.search(query="What do you know about me?", user_id="user123")
 # Get all memories
 memory.get_all(user_id="user123")
 ```
+
+## Key Takeaways
+
+1. **Intelligent Storage**: Don't just store raw conversations - extract and store meaningful facts
+2. **Semantic Search**: Use embeddings to enable natural language search
+3. **Memory Management**: Implement a system to handle updates and contradictions
+4. **History Tracking**: Keep track of changes for debugging and auditing
