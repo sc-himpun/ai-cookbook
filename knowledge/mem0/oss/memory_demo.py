@@ -21,6 +21,7 @@ def chat_with_memories(message: str, user_id: str = "default_user") -> str:
     memories_str = "\n".join(
         f"- {entry['memory']}" for entry in relevant_memories["results"]
     )
+    print(memories_str)
 
     # Generate Assistant response
     system_prompt = f"You are a helpful AI. Answer the question based on query and memories.\nUser Memories:\n{memories_str}"
@@ -35,7 +36,8 @@ def chat_with_memories(message: str, user_id: str = "default_user") -> str:
 
     # Create new memories from the conversation
     messages.append({"role": "assistant", "content": assistant_response})
-    memory.add(messages, user_id=user_id)
+    # This is where the magic happens
+    memory.add(messages, user_id=user_id, metadata={"source": "demo"})
 
     return assistant_response
 
