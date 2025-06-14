@@ -4,31 +4,37 @@ from contextlib import AsyncExitStack
 from typing import Any, Dict, List, Optional
 
 import nest_asyncio
+import os
 from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from openai import AsyncOpenAI
+import openai
 
 # Apply nest_asyncio to allow nested event loops (needed for Jupyter/IPython)
 nest_asyncio.apply()
 
 # Load environment variables
 load_dotenv("../.env")
-
+os.environ["OPENAI_API_KEY"]="lm-studio"
+os.environ["OPENAI_API_BASE"]="http://192.168.29.53:1234/v1"
 
 class MCPOpenAIClient:
     """Client for interacting with OpenAI models using MCP tools."""
 
-    def __init__(self, model: str = "gpt-4o"):
+    def __init__(self, model: str = "mistral-7b-instruct-v0.2@q4_k_m"):
         """Initialize the OpenAI MCP client.
 
         Args:
             model: The OpenAI model to use.
         """
         # Initialize session and client objects
+        openai.api_base = os.environ["OPENAI_API_BASE"]
+        openai.api_key = os.environ["OPENAI_API_KEY"]
         self.session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
-        self.openai_client = AsyncOpenAI()
+        self.openai_client = AsyncOpenAI(base_url=os.environ["OPENAI_API_BASE"],
+                                         api_key=os.environ["OPENAI_API_KEY"])
         self.model = model
         self.stdio: Optional[Any] = None
         self.write: Optional[Any] = None

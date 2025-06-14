@@ -15,7 +15,9 @@ mcp = FastMCP(
 @mcp.tool()
 def add(a: int, b: int) -> int:
     """Add two numbers together"""
+    print("Registered tool: add")  # manual debug
     return a + b
+
 
 
 # Run the server

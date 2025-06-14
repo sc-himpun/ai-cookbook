@@ -25,10 +25,21 @@ docker build -t mcp-server .
 ### Step 2: Run the Docker container
 
 ```bash
-docker run -p 8050:8050 mcp-server
+docker run --detach -p 9000:9000 -p 9001:9001 --network dbnetwork --name minio -v D:\minio\data:/data -e "MINIO_ROOT_USER=root" -e "MINIO_ROOT_PASSWORD=password" quay.io/minio/minio server /data --console-address ":9001"
+
+docker run --network dbnetwork  --name mcpserver -p 8050:8050  -d mcp-server
 ```
 
 This will start the MCP server inside a Docker container and expose it on port 8050.
+
+##  Create a bucket in minio
+
+- Open the MinIO Console at http://localhost:9001.  
+- Login with user and password as specified in the MinIO setup. (default is root and password).  
+- Create a bucket named 'bucket'.  
+- Put text files inside the bucket.  
+
+
 
 ## Running the Client
 
