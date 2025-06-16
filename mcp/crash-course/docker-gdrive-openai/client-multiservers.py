@@ -49,6 +49,7 @@ class MCPOpenAIClient:
             tools = await session.list_tools()
             for tool in tools.tools:
                 self.tool_map[tool.name] = key  # map tool name to session
+                print(f"  - {key}: {tool.name}: {tool.description} ")
 
 
     async def get_mcp_tools(self) -> List[Dict[str, Any]]:
