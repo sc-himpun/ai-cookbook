@@ -149,7 +149,8 @@ async def main():
         # query = "which filename in s3 mentions anything about Bohemia, show the full file content and details"
         # query = "which filename contains anything related to Elephants Can Remember, give context"
         # query = "which file in s3 mentions about The Black Tower, give full file details and context."
-        query = "Any file contains anything about Bellona Club? , if yes, show details of the file"
+        # query = "Any file contains anything about Bellona Club? , if yes, show details of the file"
+        query = "Any file mentions Hammer of God? , if yes, show details of the file"
         print(f"\nQuery: {query}")
         response = await client.process_query(query)
         print(f"\nResponse: {response}")
