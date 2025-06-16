@@ -10,7 +10,7 @@ import openai
 load_dotenv("../.env")
 
 
-USE_MINIO = os.getenv("USE_MINIO", "True") == "True"
+USE_MINIO = os.getenv("USE_MINIO", "True").strip().lower() == "true"
 BUCKET = os.getenv("S3_BUCKET", "bucket")
 
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "root")
@@ -26,17 +26,17 @@ os.environ["OPENAI_API_BASE"]="http://192.168.29.53:1234/v1"
 openai.api_base = os.environ["OPENAI_API_BASE"]
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
+
 def get_s3_client():
-    if USE_MINIO:
-        return boto3.client(
-            "s3",
-            endpoint_url=S3_ENDPOINT_URL,
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-            region_name=AWS_REGION,
-        )
-    else:
-        return boto3.client("s3", region_name=AWS_REGION)
+    """Get appropriate S3 client (AWS S3 or MinIO)"""
+    return boto3.client(
+        "s3",
+        endpoint_url=S3_ENDPOINT_URL.strip() if USE_MINIO else None,
+        aws_access_key_id=AWS_ACCESS_KEY_ID.strip(),
+        aws_secret_access_key=AWS_SECRET_ACCESS_KEY.strip(),
+        region_name=AWS_REGION.strip() if not USE_MINIO else None,
+    )
+
 
 s3 = get_s3_client()
 
