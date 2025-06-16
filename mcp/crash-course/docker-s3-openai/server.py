@@ -43,7 +43,7 @@ s3 = get_s3_client()
 # ─── MCP SETUP ─────────────────────────────────────────────────────────────
 mcp = FastMCP(name="S3Toolkit", host="0.0.0.0", port=8050)
 
-@mcp.tool()
+@mcp.tool(name="s3_search_files")
 def search_files(keyword: str, search_type: str = "both") -> list:
     """Used for performing search in filenames and file's content on s3 bucket"""
     results = []
@@ -65,7 +65,7 @@ def search_files(keyword: str, search_type: str = "both") -> list:
     return json.dumps(results)
 
 
-@mcp.tool()
+@mcp.tool(name="s3_fetch_file")
 def fetch_file(key: str, user_query: str = "") -> str:
     """Used for fetching file from S3 bucket"""
     body = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read().decode("utf-8", errors="ignore")
