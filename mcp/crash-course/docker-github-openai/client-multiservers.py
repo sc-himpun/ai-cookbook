@@ -130,7 +130,7 @@ class MCPOpenAIClient:
 # query = "which file in s3 mentions about The Black Tower, give full file details and context."
 # query = "Any file contains anything about Bellona Club? , if yes, show details of the file"
 # query = "Any file mentions Hammer of God? , if yes, show details of the file"
-query = "which files mention about The Blue Cross and Shroud for a Nightingale , give the filenames, location and summarize"
+# query = "which file(s) mention about The Blue Cross and about Shroud for a Nightingale , give the filenames, locations, search both in s3 and gdrive"
 # query = "which file mentions about The Redeemer , is it present in sc-himpun/testmcp? give the file details"
 # query = "create a new branch update and create test commit on sc-himpun/testmcp repo in github with some random description on test.txt file"
 # query = "create a pull request in the repo sc-himpun/testmcp from update branch to main branch"

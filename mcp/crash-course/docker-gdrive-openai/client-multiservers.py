@@ -140,25 +140,64 @@ class MCPOpenAIClient:
         await self.exit_stack.aclose()
 
 
+# async def main():
+#     client = MCPOpenAIClient()
+#     try:
+#         await client.connect_to_servers()
+#         # query = "Find a file related to sherlock and summarize it?"
+#         # query = "Find a file related to sherlock, does it contain anything related to Blue Carbuncle?"
+#         # query = "which filename in s3 mentions anything about Bohemia, show the full file content and details"
+#         # query = "which filename contains anything related to Elephants Can Remember, give context"
+#         # query = "which file in s3 mentions about The Black Tower, give full file details and context."
+#         # query = "Any file contains anything about Bellona Club? , if yes, show details of the file"
+#         # query = "Any file mentions Hammer of God? , if yes, show details of the file"
+#         query = "which file(s) mention about The Blue Cross and about Shroud for a Nightingale , give the filenames, locations, search both in s3 and gdrive"
+#         print(f"\nQuery: {query}")
+#         response = await client.process_query(query)
+#         print(f"\nResponse: {response}")
+#     finally:
+#         await client.cleanup() 
+
+
+# Example queries:
+# query = "Find a file related to sherlock and summarize it?"
+# query = "Find a file related to sherlock, does it contain anything related to Blue Carbuncle?"
+# query = "which filename in s3 mentions anything about Bohemia, show the full file content and details"
+# query = "which filename contains anything related to Elephants Can Remember, give context"
+# query = "which file in s3 mentions about The Black Tower, give full file details and context."
+# query = "Any file contains anything about Bellona Club? , if yes, show details of the file"
+# query = "Any file mentions Hammer of God? , if yes, show details of the file"
+# query = "which file(s) mention about The Blue Cross and about Shroud for a Nightingale , give the filenames, locations"
+# query = "which file(s) mention about The Blue Cross and about Shroud for a Nightingale , give the filenames, locations, search both in s3 and gdrive"
+
 async def main():
     client = MCPOpenAIClient()
     try:
         await client.connect_to_servers()
-        query = "Find a file related to sherlock and summarize it?"
-        # query = "Find a file related to sherlock, does it contain anything related to Blue Carbuncle?"
-        # query = "which filename in s3 mentions anything about Bohemia, show the full file content and details"
-        # query = "which filename contains anything related to Elephants Can Remember, give context"
-        # query = "which file in s3 mentions about The Black Tower, give full file details and context."
-        # query = "Any file contains anything about Bellona Club? , if yes, show details of the file"
-        # query = "Any file mentions Hammer of God? , if yes, show details of the file"
-        # query = "which files mention about The Blue Cross and Shroud for a Nightingale , give the filenames, location and summarize"
-        print(f"\nQuery: {query}")
-        response = await client.process_query(query)
-        print(f"\nResponse: {response}")
+        print("✅ Connected to MCP servers. Enter a query (or type 'exit' to quit).")
+
+        while True:
+            try:
+                query = input("\n🔎 Query: ").strip()
+                if not query:
+                    continue
+                if query.lower() in {"exit", "quit"}:
+                    print("👋 Exiting...")
+                    break
+
+                print(f"\n⏳ Running: {query}")
+                response = await client.process_query(query)
+                print(f"\n📤 Response:\n{response}")
+
+            except KeyboardInterrupt:
+                print("\n🛑 Interrupted. Exiting...")
+                break
+            except Exception as e:
+                print(f"❌ Error: {e}")
+
     finally:
-        await client.cleanup() 
-
-
+        await client.cleanup()
+        print("🧹 Cleaned up.")
 
 if __name__ == "__main__":
     asyncio.run(main())
