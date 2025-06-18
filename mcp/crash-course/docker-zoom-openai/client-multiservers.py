@@ -44,17 +44,23 @@ class MCPOpenAIClient:
             "slack": "http://localhost:8054/sse",
             "zoom": "http://localhost:8055/sse"
         }
-        for key, url in servers.items():
-            transport = await self.exit_stack.enter_async_context(sse_client(url))
-            reader, writer = transport
-            session = await self.exit_stack.enter_async_context(ClientSession(reader, writer))
-            await session.initialize()
-            self.sessions[key] = session
 
-            tools = await session.list_tools()
-            for tool in tools.tools:
-                self.tool_map[tool.name] = key  # map tool name to session
-                print(f"  - {key}: {tool.name}: {tool.description} ")
+        for key, url in servers.items():
+            try:
+                print(f"Connecting to {key} at {url}...")
+                transport = await self.exit_stack.enter_async_context(sse_client(url))
+                reader, writer = transport
+                session = await self.exit_stack.enter_async_context(ClientSession(reader, writer))
+                await session.initialize()
+                self.sessions[key] = session
+
+                tools = await session.list_tools()
+                for tool in tools.tools:
+                    self.tool_map[tool.name] = key
+                    print(f"  - {key}: {tool.name}: {tool.description} ")
+
+            except Exception as e:
+                print(f"[WARNING] Skipping {key} ({url}) - Could not connect: {e}")
 
 
     async def get_mcp_tools(self) -> List[Dict[str, Any]]:
