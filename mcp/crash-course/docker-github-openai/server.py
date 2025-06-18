@@ -155,5 +155,46 @@ def delete_branch(repo_name: str, branch_name: str) -> str:
         return f"Failed to delete branch '{branch_name}': {str(e)}"
 
 
+@mcp.tool(name="github_list_open_issues")
+def list_open_issues(repo_name: str) -> list:
+    """List open issues in a GitHub repository."""
+    repo = gh.get_repo(repo_name)
+    open_issues = repo.get_issues(state="open")
+    return [
+        {"number": issue.number, "title": issue.title, "created_at": str(issue.created_at)}
+        for issue in open_issues
+    ]
+
+
+@mcp.tool(name="github_list_closed_issues")
+def list_closed_issues(repo_name: str) -> list:
+    """List closed issues in a GitHub repository."""
+    repo = gh.get_repo(repo_name)
+    closed_issues = repo.get_issues(state="closed")
+    return [
+        {"number": issue.number, "title": issue.title, "closed_at": str(issue.closed_at)}
+        for issue in closed_issues
+    ]
+
+
+@mcp.tool(name="github_issue_counts")
+def get_issue_counts(repo_name: str) -> dict:
+    """Return the count of open and closed issues in a GitHub repository."""
+    repo = gh.get_repo(repo_name)
+    
+    open_issues = repo.get_issues(state="open")
+    closed_issues = repo.get_issues(state="closed")
+
+    open_count = open_issues.totalCount if hasattr(open_issues, "totalCount") else len(list(open_issues))
+    closed_count = closed_issues.totalCount if hasattr(closed_issues, "totalCount") else len(list(closed_issues))
+
+    return {
+        "open_issues": open_count,
+        "closed_issues": closed_count,
+        "total_issues": open_count + closed_count
+    }
+
+
+
 if __name__ == "__main__":
     mcp.run(transport="sse")

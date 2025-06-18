@@ -1,7 +1,10 @@
+credentials.json
+token.json
+credentials_user.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-zoom_token.json
 
 # C extensions
 *.so
