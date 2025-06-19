@@ -1,27 +1,20 @@
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 import os
-import openai
 import json
 import io
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-load_dotenv("../.env")
-
-# ─── OpenAI Configuration ───────────────────────────────────────────────────
-os.environ["OPENAI_API_KEY"] = "lm-studio"
-os.environ["OPENAI_API_BASE"] = "http://192.168.29.53:1234/v1"
-openai.api_key = os.environ["OPENAI_API_KEY"]
-openai.api_base = os.environ["OPENAI_API_BASE"]
+load_dotenv()
 
 # ─── Google Drive Configuration ─────────────────────────────────────────────
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 SERVICE_ACCOUNT_FILE = 'credentials.json'
-# ROOT_FOLDER_ID = os.getenv("GDRIVE_ROOT_FOLDER_ID") 
+ROOT_FOLDER_ID = os.getenv("GDRIVE_ROOT_FOLDER_ID") 
 # ROOT_FOLDER_ID = "1SYeijTDz1msCFvNbN4U6ai2Zol1AJh-i"  # personal folder
-ROOT_FOLDER_ID = "1l-6WAmSbWWNx3Rc10LfHXZpCWY3ShZJI"  # service account folder
+# ROOT_FOLDER_ID = "1l-6WAmSbWWNx3Rc10LfHXZpCWY3ShZJI"  # service account folder
 
 credentials = service_account.Credentials.from_service_account_file(
     SERVICE_ACCOUNT_FILE, scopes=SCOPES

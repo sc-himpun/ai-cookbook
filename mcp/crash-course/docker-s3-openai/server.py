@@ -1,13 +1,11 @@
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
-# from openai import OpenAI
 import os
 from mcp.server.fastmcp import FastMCP
 import boto3
 import json
-import openai
 
-load_dotenv("../.env")
+load_dotenv()
 
 
 USE_MINIO = os.getenv("USE_MINIO", "True").strip().lower() == "true"
@@ -17,14 +15,6 @@ AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "root")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "password")
 S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "http://minio:9000")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-
-
-os.environ["OPENAI_API_KEY"]="lm-studio"
-os.environ["OPENAI_API_BASE"]="http://192.168.29.53:1234/v1"
-
-
-openai.api_base = os.environ["OPENAI_API_BASE"]
-openai.api_key = os.environ["OPENAI_API_KEY"]
 
 
 def get_s3_client():
