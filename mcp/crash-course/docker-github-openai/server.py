@@ -2,7 +2,7 @@ from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 from github import Github
 import os
-from typing import List, Dict, Any
+# from typing import List, Dict, Any
 
 # Load environment variables
 load_dotenv()
@@ -157,29 +157,33 @@ def delete_branch(repo_name: str, branch_name: str) -> str:
 
 
 @mcp.tool(name="github_list_open_issues")
-def list_open_issues(repo_name: str) -> List[Dict[str, Any]]:
+def list_open_issues(repo_name: str) -> str:
     """List open issues in a GitHub repository."""
     repo = gh.get_repo(repo_name)
     open_issues = repo.get_issues(state="open")
-    return [
-        {"number": issue.number, "title": issue.title, "created_at": str(issue.created_at)}
-        for issue in open_issues
-    ]
+
+    result = ""
+    for issue in open_issues:
+        result += f"- #{issue.number}: **{issue.title}** (created at {issue.created_at})\n"
+
+    return result or "No open issues found."
 
 
 @mcp.tool(name="github_list_closed_issues")
-def list_closed_issues(repo_name: str) -> List[Dict[str, Any]]:
+def list_closed_issues(repo_name: str) -> str:
     """List closed issues in a GitHub repository."""
     repo = gh.get_repo(repo_name)
     closed_issues = repo.get_issues(state="closed")
-    return [
-        {"number": issue.number, "title": issue.title, "closed_at": str(issue.closed_at)}
-        for issue in closed_issues
-    ]
+    
+    result = ""
+    for issue in closed_issues:
+        result += f"- #{issue.number}: **{issue.title}** (closed at {issue.closed_at})\n"
+
+    return result or "No closed issues found."
 
 
 @mcp.tool(name="github_issue_counts")
-def get_issue_counts(repo_name: str) -> dict:
+def get_issue_counts(repo_name: str) -> str:
     """Return the count of open and closed issues in a GitHub repository."""
     repo = gh.get_repo(repo_name)
     
@@ -189,11 +193,13 @@ def get_issue_counts(repo_name: str) -> dict:
     open_count = open_issues.totalCount if hasattr(open_issues, "totalCount") else len(list(open_issues))
     closed_count = closed_issues.totalCount if hasattr(closed_issues, "totalCount") else len(list(closed_issues))
 
-    return {
-        "open_issues": open_count,
-        "closed_issues": closed_count,
-        "total_issues": open_count + closed_count
-    }
+    return (
+        f"Issue counts for `{repo_name}`:\n"
+        f"- Open issues: {open_count}\n"
+        f"- Closed issues: {closed_count}\n"
+        f"- Total: {open_count + closed_count}"
+    )
+
 
 
 
