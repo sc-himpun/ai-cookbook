@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 import base64
 from datetime import datetime, timedelta
+import time
 
 # ─── Load Environment ────────────────────────────────────────────────────────
 load_dotenv()
@@ -15,12 +16,16 @@ TOKEN_FILE = "zoom_token.json"
 
 # ─── Token Management ────────────────────────────────────────────────────────
 def get_zoom_token():
+    now = int(time.time())
+
     if os.path.exists(TOKEN_FILE):
         with open(TOKEN_FILE) as f:
             data = json.load(f)
-            if "access_token" in data:
-                return data["access_token"]
+            if "access_token" in data and "expires_at" in data:
+                if data["expires_at"] > now + 30:  # add buffer of 30 seconds
+                    return data["access_token"]
 
+    # Request new token
     url = "https://zoom.us/oauth/token"
     auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
     b64_auth = base64.b64encode(auth_str.encode()).decode()
@@ -36,15 +41,17 @@ def get_zoom_token():
     }
 
     response = requests.post(url, headers=headers, data=data)
-
     if not response.ok:
         raise Exception(f"Failed to get token: {response.status_code} - {response.text}")
 
     token_data = response.json()
+    token_data["expires_at"] = now + token_data.get("expires_in", 3600)
+
     with open(TOKEN_FILE, "w") as f:
         json.dump(token_data, f)
 
     return token_data["access_token"]
+
 
 
 
