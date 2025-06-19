@@ -25,7 +25,7 @@ docker build -t mcp-server-gdrive .
 ### Step 2: Run the Docker container
 
 ```bash
-docker run --network dbnetwork  --name mcp-server-gdrive -p 8051:8051  -d mcp-server-gdrive
+docker run  --env-file .env --network dbnetwork  --name mcp-server-gdrive -p 8051:8051  -d mcp-server-gdrive
 ```
 
 This will start the MCP server inside a Docker container and expose it on port 8050.

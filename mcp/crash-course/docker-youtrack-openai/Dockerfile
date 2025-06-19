@@ -14,7 +14,6 @@ RUN uv pip install -r requirements.txt
 
 # Copy application code
 COPY server.py .
-COPY client-multiservers.py .
 
 # Expose the port the server runs on
 EXPOSE 8053

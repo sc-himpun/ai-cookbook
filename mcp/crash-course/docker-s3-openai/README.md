@@ -19,7 +19,7 @@ This project demonstrates how to run an MCP (Model Control Protocol) server usin
 ### Step 1: Build the Docker image
 
 ```bash
-docker build -t mcp-server .
+docker build -t mcp-server-s3 .
 ```
 
 ### Step 2: Run the Docker container
@@ -27,7 +27,7 @@ docker build -t mcp-server .
 ```bash
 docker run --detach -p 9000:9000 -p 9001:9001 --network dbnetwork --name minio -v D:\minio\data:/data -e "MINIO_ROOT_USER=root" -e "MINIO_ROOT_PASSWORD=password" quay.io/minio/minio server /data --console-address ":9001"
 
-docker run --network dbnetwork  --name mcpserver -p 8050:8050  -d mcp-server
+docker run  --env-file .env --network dbnetwork  --name mcp-server-s3 -p 8050:8050  -d mcp-server-s3
 ```
 
 This will start the MCP server inside a Docker container and expose it on port 8050.

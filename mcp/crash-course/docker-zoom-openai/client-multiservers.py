@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 import time
 
 
-load_dotenv("")
+load_dotenv()
 
 
 # os.environ["OPENAI_API_KEY"] = "lm-studio"
@@ -141,7 +141,7 @@ class MCPOpenAIClient:
 # query = "Any file mentions Hammer of God? , if yes, show details of the file"
 # query = "which file(s) mention about The Blue Cross and about Shroud for a Nightingale , give the filenames, locations, search both in s3 and gdrive"
 # query = "which file mentions about The Redeemer , is it present in sc-himpun/testmcp? give the file details"
-# query = "create a new branch update and create test commit on sc-himpun/testmcp repo in github with some random description on test.txt file"
+# query = "create a new branch update and create test commit on sc-himpun/testmcp repo in github with some random description on new test.txt file"
 # query = "create a pull request in the repo sc-himpun/testmcp from update branch to main branch"
 # query = "list all open pull requests in the repo sc-himpun/testmcp"
 # query = "close open pull request from update branch in the repo sc-himpun/testmcp and delete update branch"
