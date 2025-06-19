@@ -2,6 +2,7 @@ from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 from github import Github
 import os
+from typing import List, Dict, Any
 
 # Load environment variables
 load_dotenv()
@@ -156,7 +157,7 @@ def delete_branch(repo_name: str, branch_name: str) -> str:
 
 
 @mcp.tool(name="github_list_open_issues")
-def list_open_issues(repo_name: str) -> list:
+def list_open_issues(repo_name: str) -> List[Dict[str, Any]]:
     """List open issues in a GitHub repository."""
     repo = gh.get_repo(repo_name)
     open_issues = repo.get_issues(state="open")
@@ -167,7 +168,7 @@ def list_open_issues(repo_name: str) -> list:
 
 
 @mcp.tool(name="github_list_closed_issues")
-def list_closed_issues(repo_name: str) -> list:
+def list_closed_issues(repo_name: str) -> List[Dict[str, Any]]:
     """List closed issues in a GitHub repository."""
     repo = gh.get_repo(repo_name)
     closed_issues = repo.get_issues(state="closed")
