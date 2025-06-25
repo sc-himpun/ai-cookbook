@@ -9,11 +9,19 @@ from msal import PublicClientApplication, ConfidentialClientApplication
 
 load_dotenv()
 
+# CLIENT_ID = os.getenv("ONEDRIVE_CLIENT_ID")
+# CLIENT_SECRET = os.getenv("ONEDRIVE_CLIENT_SECRET") if os.getenv("ONEDRIVE_ACCOUNT_TYPE", "personal").lower() != "personal" else None
+# TENANT_ID = os.getenv("ONEDRIVE_TENANT_ID")
+# ROOT_FOLDER_ID = os.getenv("ONEDRIVE_ROOT_FOLDER_ID", "root")
+# REDIRECT_URI = os.getenv("REDIRECT_URI", "https://login.microsoftonline.com/common/oauth2/nativeclient")
+
 CLIENT_ID = os.getenv("ONEDRIVE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("ONEDRIVE_CLIENT_SECRET") if os.getenv("ONEDRIVE_ACCOUNT_TYPE", "personal").lower() != "personal" else None
 TENANT_ID = os.getenv("ONEDRIVE_TENANT_ID")
 ROOT_FOLDER_ID = os.getenv("ONEDRIVE_ROOT_FOLDER_ID", "root")
 REDIRECT_URI = os.getenv("REDIRECT_URI", "https://login.microsoftonline.com/common/oauth2/nativeclient")
+
+
 
 print (CLIENT_ID, CLIENT_SECRET, TENANT_ID, ROOT_FOLDER_ID, REDIRECT_URI)
 # Determine authority based on account type
