@@ -19,13 +19,13 @@ This project demonstrates how to run an MCP (Model Control Protocol) server usin
 ### Step 1: Build the Docker image
 
 ```bash
-docker build -t mcp-server-gdrive .
+docker build -t mcp-server-gmail .
 ```
 
 ### Step 2: Run the Docker container
 
 ```bash
-docker run  --env-file .env --network dbnetwork  --name mcp-server-gdrive -p 8051:8051  -d mcp-server-gdrive
+docker run  --env-file .env --network dbnetwork  --name mcp-server-gmail -p 8000:8000  -d mcp-server-gmail
 ```
 
 This will start the MCP server inside a Docker container and expose it on port 8050.
