@@ -17,3 +17,4 @@ msgraph-sdk>=1.0.0
 azure-identity>=1.14.0
 fastapi
 uvicorn
+nest_asyncio

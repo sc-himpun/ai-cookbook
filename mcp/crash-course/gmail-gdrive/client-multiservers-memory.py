@@ -45,8 +45,10 @@ class MCPOpenAIClient:
             "slack": "http://localhost:8054/sse",
             "zoom": "http://localhost:8055/sse",
             # "azure": "http://localhost:5008/sse",
-            "onedrive": "http://localhost:8056/sse",
+            # "onedrive": "http://localhost:8056/sse",
+            "onedrive-business_sharepoint": "http://localhost:8057/sse",
             "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
+            "jira"  : "http://localhost:8002/mcp-server/sse/",
         }
 
         for key, url in servers.items():

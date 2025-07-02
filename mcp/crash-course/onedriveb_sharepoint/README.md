@@ -19,17 +19,15 @@ This project demonstrates how to run an MCP (Model Control Protocol) server usin
 ### Step 1: Build the Docker image
 
 ```bash
-docker build -t mcp-server-onedrive .
+docker build -t mcp-server-onedrive-sharepoint .
 ```
 
 ### Step 2: Run the Docker container
 
 ```bash
 
-docker run --env-file .env --network dbnetwork  --name mcp-server-onedrive -p 8056:8056  -v <path of token in local system>:/app/.onedrive_refresh_token.json -d mcp-server-onedrive
+docker run --env-file .env --network dbnetwork  --name mcp-server-onedrive-sharepoint -p 8057:8057  -d mcp-server-onedrive-sharepoint
 
-example
-docker run --env-file .env --network dbnetwork  --name mcp-server-onedrive -p 8056:8056  -v C:\Users\himanshu_punetha\Documents\ai-cookbook\.onedrive_refresh_token.json:/app/.onedrive_refresh_token.json -d mcp-server-onedrive
 ```
 
 This will start the MCP server inside a Docker container and expose it on port 8050.
