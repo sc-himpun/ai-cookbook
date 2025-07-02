@@ -110,46 +110,91 @@ def list_authorized_accounts() -> str:
 
 
 @mcp.tool(name="gdrive_search_files")
-def gdrive_search_files(keyword: str, email: str, search_type: str = "both") -> str:
-    """Search for files in the user's Google Drive by name or content."""
+def gdrive_search_files(
+    keyword: str,
+    email: str,
+    search_type: str = "both",
+    path: str = "root",
+    depth: int = 2,
+    file_type: str = "text"
+) -> str:
+    """
+    Search for files in the user's Google Drive by name, content, or both.
+
+    Parameters:
+    - keyword: The string to search for (in filenames and/or file contents).
+    - email: The user's Gmail address (must be authorized via OAuth).
+    - search_type: One of ["filename", "content", "both"]. Controls whether to search filenames, contents, or both.
+    - path: Folder name (case-insensitive) or "root" to start traversal from. Must be a valid folder.
+    - depth: Maximum recursion depth for folder traversal. Default is 2.
+    - file_type: "text" (default) to restrict to readable formats (.txt, .csv, .json, Google Docs, etc.), or "all" to include all file types.
+
+    Returns:
+    - A JSON list of matching files, each with 'name' and 'id', or a message if no matches are found.
+    """
     if email not in user_tokens:
         return "❌ Email not authorized. Please login first."
 
     creds = Credentials(token=user_tokens[email]['access_token'])
     service = build('drive', 'v3', credentials=creds)
 
+    try:
+        folder_id = resolve_folder_id_by_name(service, path) if path != "root" else "root"
+    except FileNotFoundError as e:
+        return str(e)
+
     results = []
-    page_token = None
-    query = f"name contains '{keyword}' and trashed = false"
-    while True:
-        response = service.files().list(
-            q=query,
-            fields="nextPageToken, files(id, name, mimeType)",
-            pageToken=page_token
-        ).execute()
-        for file in response.get('files', []):
-            match = False
-            if search_type in ["filename", "both"]:
-                if keyword.lower() in file["name"].lower():
+    files = _gdrive_recursive_list(
+        service,
+        folder_id,
+        current_depth=0,
+        max_depth=depth,
+        file_type=file_type
+    )
+
+    for file in files:
+        match = False
+        if search_type in ["filename", "both"] and keyword.lower() in file["name"].lower():
+            match = True
+
+        if not match and search_type in ["content", "both"]:
+            try:
+                content = gdrive_download_file_content(service, file["id"])
+                if keyword.lower() in content.lower():
                     match = True
+            except Exception:
+                continue  # skip unreadable or binary files
 
-            if not match and search_type in ["content", "both"]:
-                try:
-                    text = gdrive_download_file_content(service, file["id"])
-                    if keyword.lower() in text.lower():
-                        match = True
-                except Exception:
-                    continue  # unreadable file, skip
-
-            if match:
-                results.append(f"{file['name']} (ID: {file['id']})")
-        page_token = response.get("nextPageToken")
-        if not page_token:
-            break
+        if match:
+            results.append({"name": file["name"], "id": file["id"]})
 
     if not results:
         return "No matching files found."
-    return "\n".join(results)
+
+    return json.dumps(results)
+
+
+
+def resolve_folder_id_by_name(service, folder_name: str) -> str:
+    """Resolve a folder name (case-insensitive) to its Google Drive folder ID."""
+    # Use name contains (not exact match) + filter in Python for case-insensitive match
+    query = (
+        "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    )
+    response = service.files().list(
+        q=query,
+        spaces='drive',
+        fields="files(id, name)",
+        pageSize=1000  # Allow scanning up to 1000 folders
+    ).execute()
+
+    folders = response.get("files", [])
+    for folder in folders:
+        if folder["name"].lower() == folder_name.lower():
+            return folder["id"]
+
+    raise FileNotFoundError(f"❌ Folder '{folder_name}' not found (case-insensitive match).")
+
 
 
 @mcp.tool(name="gdrive_fetch_file")
@@ -181,25 +226,58 @@ def gdrive_download_file_content(service, file_id: str) -> str:
     return fh.read().decode("utf-8", errors="ignore")
 
 
+
 @mcp.tool(name="gdrive_list_all_files")
-def gdrive_list_all_files(email: str, folder_id: str = "root") -> str:
-    """Recursively list all files in the user's Google Drive under the given folder."""
+def gdrive_list_all_files(
+    email: str,
+    folder_id: str = "1SYeijTDz1msCFvNbN4U6ai2Zol1AJh-i",
+    depth: int = 2,
+    file_type: str = "text"  # "text" or "all"
+) -> str:
+    """
+    Recursively list all files in the user's Google Drive under the given folder,
+    filtered by file type and limited by depth.
+    """
     if email not in user_tokens:
         return "❌ Email not authorized. Please login first."
 
     creds = Credentials(token=user_tokens[email]['access_token'])
     service = build('drive', 'v3', credentials=creds)
 
-    all_files = _gdrive_recursive_list(service, folder_id)
+    all_files = _gdrive_recursive_list(
+        service, folder_id, current_depth=0, max_depth=depth, file_type=file_type
+    )
     if not all_files:
-        return "No files found."
+        return "No matching files found."
 
     return "\n".join(f"{f['name']} (ID: {f['id']})" for f in all_files)
 
 
-def _gdrive_recursive_list(service, folder_id: str) -> list:
-    """Helper to recursively list all files and subfolders."""
+
+def _gdrive_recursive_list(
+    service,
+    folder_id: str,
+    current_depth: int,
+    max_depth: int,
+    file_type: str = "all"
+) -> list:
+    """Helper to recursively list all files and subfolders up to max_depth, with optional file_type filter."""
     all_files = []
+
+    # Allowed filters
+    allowed_extensions = {".txt", ".md", ".csv", ".json"}
+    allowed_mime_types = {
+        "text/plain",
+        "text/markdown",
+        "text/csv",
+        "application/json",
+        "application/vnd.google-apps.document",  # Google Docs
+    }
+
+
+    if current_depth > max_depth:
+        return all_files
+
     query = f"'{folder_id}' in parents and trashed = false"
     page_token = None
     while True:
@@ -209,14 +287,28 @@ def _gdrive_recursive_list(service, folder_id: str) -> list:
             pageToken=page_token
         ).execute()
         for file in response.get("files", []):
-            if file["mimeType"] == "application/vnd.google-apps.folder":
-                all_files.extend(_gdrive_recursive_list(service, file["id"]))
+            mime = file["mimeType"]
+            name = file["name"]
+
+            if mime == "application/vnd.google-apps.folder":
+                all_files.extend(
+                    _gdrive_recursive_list(service, file["id"], current_depth + 1, max_depth, file_type)
+                )
             else:
-                all_files.append(file)
+                if file_type == "all":
+                    all_files.append(file)
+                elif (
+                    mime in allowed_mime_types
+                    or any(name.lower().endswith(ext) for ext in allowed_extensions)
+                ):
+                    all_files.append(file)
         page_token = response.get("nextPageToken")
         if not page_token:
             break
     return all_files
+
+
+
 
 
 # ─── Auth Endpoints ──────────────────────────────────────────────────────────
