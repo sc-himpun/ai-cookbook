@@ -62,52 +62,5 @@ def fetch_file(key: str, user_query: str = "") -> str:
    
     return body
 
-@mcp.tool(name="s3_select_query")
-def s3_select_query(key: str, query: str = "SELECT * FROM S3Object LIMIT 5") -> str:
-    """
-    Query CSV, JSON, or Parquet files on S3 using S3 Select.
-    Only supports structured formats: .csv, .json, .parquet
-    """
-    # Determine format based on file extension
-    if key.endswith(".csv"):
-        input_serialization = {
-            "CSV": {"FileHeaderInfo": "USE"},
-            "CompressionType": "NONE"
-        }
-        output_serialization = {"CSV": {}}
-    elif key.endswith(".json"):
-        input_serialization = {
-            "JSON": {"Type": "DOCUMENT"},
-            "CompressionType": "NONE"
-        }
-        output_serialization = {"JSON": {}}
-    elif key.endswith(".parquet"):
-        input_serialization = {
-            "Parquet": {}
-        }
-        output_serialization = {"JSON": {}}
-    else:
-        return f"Unsupported file format for key: {key}"
-
-    try:
-        response = s3.select_object_content(
-            Bucket=BUCKET,
-            Key=key,
-            ExpressionType="SQL",
-            Expression=query,
-            InputSerialization=input_serialization,
-            OutputSerialization=output_serialization,
-        )
-
-        result = ""
-        for event in response["Payload"]:
-            if "Records" in event:
-                result += event["Records"]["Payload"].decode("utf-8", errors="ignore")
-
-        return result.strip() or "No results found."
-
-    except Exception as e:
-        return f"Query failed: {str(e)}"
-
 if __name__ == "__main__":
     mcp.run(transport="sse")

@@ -1,9 +1,11 @@
+credentials.json
+token.json
+credentials_user.json
+.onedrive_refresh_token.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-zoom_token.json
-.onedrive_refresh_token.json
-*.pem
 
 # C extensions
 *.so

@@ -44,12 +44,11 @@ class MCPOpenAIClient:
             # "youtrack": "http://localhost:8053/sse",
             # "slack": "http://localhost:8054/sse",
             # "zoom": "http://localhost:8055/sse",
+            # # "azure": "http://192.168.29.53:5008/sse",
             # "azure": "http://localhost:5008/sse",
             # "onedrive": "http://localhost:8056/sse",
             # "onedrive-business_sharepoint": "http://localhost:8057/sse",
-            "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
-            # "jira"  : "http://localhost:8002/mcp-server/sse/",
-             "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
+            "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
         }
 
         for key, url in servers.items():
@@ -216,7 +215,11 @@ class MCPOpenAIClient:
 # query = "which file mentions about yellow dog in bookstypes folder of onedrive"
 # query = "is any file tana_french.txt present in onedrive in bookstypes folder?"
 # query = "list files in bookstypes folder on onedrive"
-# query = "which file contains anything related to Elephants Can Remember in MCPDatatest folder of gdrive?"
+# query = "list the root folder of onedrive for user HimanshuPunetha@findhimhere.onmicrosoft.com"
+# query = "is any file named louise_penny.txt present in onedrive for the same user?"
+# query = "list the sites"
+# query = "show document libraries of mysite"
+# query = "show documents of DocumentsNew library"
 
 
 async def main():

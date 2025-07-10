@@ -13,9 +13,6 @@ from starlette.routing import Route, Mount
 from starlette.responses import JSONResponse, RedirectResponse
 from starlette.requests import Request
 from starlette.applications import Starlette
-from googleapiclient.http import MediaIoBaseDownload
-import io
-
 
 # ─── Load .env ───────────────────────────────────────────────────────────────
 load_dotenv()
@@ -116,99 +113,65 @@ def list_authorized_accounts() -> str:
 def gdrive_search_files(
     keyword: str,
     email: str,
-    search_type: str = "both",  # "filename", "content", or "both"
-    file_type: str = "text",    # "text" or "all"
-    path: str = "root",         # Folder name or "root"
-    depth: int = 2              # Folder traversal depth
+    search_type: str = "both",
+    path: str = "root",
+    depth: int = 2,
+    file_type: str = "text"
 ) -> str:
     """
-    Hybrid search in Google Drive combining:
-    - Filename search using Drive API query,
-    - Google Docs content search via fullText,
-    - Client-side content search for text-based files.
+    Search for files in the user's Google Drive by name, content, or both.
 
-    Args:
-        keyword: Keyword to search for (case-insensitive).
-        email: OAuth-authenticated Gmail address.
-        search_type: "filename", "content", or "both".
-        file_type: "text" for readable formats or "all" for any file type.
-        path: Folder name (case-insensitive) or "root" to search from the top level.
-        depth: Max folder depth to search in (default is 2).
+    Parameters:
+    - keyword: The string to search for (in filenames and/or file contents).
+    - email: The user's Gmail address (must be authorized via OAuth).
+    - search_type: One of ["filename", "content", "both"]. Controls whether to search filenames, contents, or both.
+    - path: Folder name (case-insensitive) or "root" to start traversal from. Must be a valid folder.
+    - depth: Maximum recursion depth for folder traversal. Default is 2.
+    - file_type: "text" (default) to restrict to readable formats (.txt, .csv, .json, Google Docs, etc.), or "all" to include all file types.
 
     Returns:
-        A JSON list of matching files (name + ID), or a message if no matches found.
+    - A JSON list of matching files, each with 'name' and 'id', or a message if no matches are found.
     """
     if email not in user_tokens:
         return "❌ Email not authorized. Please login first."
 
-    import io
-    from googleapiclient.http import MediaIoBaseDownload
-
     creds = Credentials(token=user_tokens[email]['access_token'])
     service = build('drive', 'v3', credentials=creds)
 
-    # Resolve folder path to folder ID
     try:
         folder_id = resolve_folder_id_by_name(service, path) if path != "root" else "root"
     except FileNotFoundError as e:
         return str(e)
 
-    # Traverse target folder to get all files within depth
-    all_files = _gdrive_recursive_list(
+    results = []
+    files = _gdrive_recursive_list(
         service,
-        folder_id=folder_id,
+        folder_id,
         current_depth=0,
         max_depth=depth,
         file_type=file_type
     )
 
-    results = []
-    seen_ids = set()
+    for file in files:
+        match = False
+        if search_type in ["filename", "both"] and keyword.lower() in file["name"].lower():
+            match = True
 
-    # Step 1: Match by filename
-    if search_type in ["filename", "both"]:
-        for file in all_files:
-            if keyword.lower() in file["name"].lower():
-                results.append({"name": file["name"], "id": file["id"]})
-                seen_ids.add(file["id"])
-
-    # Step 2: Google Docs content search (via Drive query API)
-    if search_type in ["content", "both"]:
-        for file in all_files:
-            if file["id"] in seen_ids:
-                continue
-            if file["mimeType"] == "application/vnd.google-apps.document":
-                # Let Google Drive search inside Google Docs using fullText
-                try:
-                    query = f"fullText contains '{keyword}' and trashed = false and mimeType = 'application/vnd.google-apps.document'"
-                    doc_match = service.files().list(
-                        q=query,
-                        fields="files(id)",
-                        pageSize=100
-                    ).execute()
-                    doc_ids = {f["id"] for f in doc_match.get("files", [])}
-                    if file["id"] in doc_ids:
-                        results.append({"name": file["name"], "id": file["id"]})
-                        seen_ids.add(file["id"])
-                except Exception:
-                    continue
-
-    # Step 3: Client-side scan for text content
-    if search_type in ["content", "both"]:
-        for file in all_files:
-            if file["id"] in seen_ids:
-                continue
+        if not match and search_type in ["content", "both"]:
             try:
                 content = gdrive_download_file_content(service, file["id"])
                 if keyword.lower() in content.lower():
-                    results.append({"name": file["name"], "id": file["id"]})
-                    seen_ids.add(file["id"])
+                    match = True
             except Exception:
-                continue  # unreadable
+                continue  # skip unreadable or binary files
 
-    return json.dumps(results) if results else "No matching files found."
+        if match:
+            results.append({"name": file["name"], "id": file["id"]})
 
+    if not results:
+        return "No matching files found."
 
+    return json.dumps(results)
 
 
 
@@ -250,7 +213,9 @@ def gdrive_fetch_file(file_id: str, email: str) -> str:
 
 def gdrive_download_file_content(service, file_id: str) -> str:
     """Download file content as text from Google Drive."""
-    
+    from googleapiclient.http import MediaIoBaseDownload
+    import io
+
     request = service.files().get_media(fileId=file_id)
     fh = io.BytesIO()
     downloader = MediaIoBaseDownload(fh, request)

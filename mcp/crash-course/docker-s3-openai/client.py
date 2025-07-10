@@ -156,8 +156,8 @@ async def main():
     client = MCPOpenAIClient()
     try:
         await client.connect_to_server()
-        # query = "Find a file related to sherlock and summarize it?"
-        query = "Find a file related to sherlock, does it contain anything related to Blue Carbuncle?"
+        query = "Find a file related to sherlock and summarize it?"
+        # query = "Find a file related to sherlock, does it contain anything related to Blue Carbuncle?"
         # query = "which filename in s3 mentions anything about Bohemia, show the full file content and details"
         # query = "which filename contains anything related to Elephants Can Remember, give context"
         print(f"\nQuery: {query}")

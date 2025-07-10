@@ -11,7 +11,7 @@ import json
 from contextlib import AsyncExitStack
 from dotenv import load_dotenv
 import time
-
+import ssl
 
 load_dotenv()
 
@@ -21,8 +21,9 @@ load_dotenv()
 # os.environ["OPENAI_API_KEY"] = ""
 
 nest_asyncio.apply()  # Needed to run interactive python
-
-
+# UNVERIFIED_SSL_CONTEXT = ssl._create_unverified_context()
+ca_path = os.path.expanduser("~/AppData/Local/mkcert/rootCA.pem")
+ssl_context = ssl.create_default_context(cafile=ca_path)
 
 class MCPOpenAIClient:
     def __init__(self, model: str = "gpt-4o-mini"):
@@ -47,9 +48,9 @@ class MCPOpenAIClient:
             # "azure": "http://localhost:5008/sse",
             # "onedrive": "http://localhost:8056/sse",
             # "onedrive-business_sharepoint": "http://localhost:8057/sse",
-            "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
+            # "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
             # "jira"  : "http://localhost:8002/mcp-server/sse/",
-             "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
+             "slack": "https://localhost:8003/mcp-server/sse/",
         }
 
         for key, url in servers.items():
@@ -68,6 +69,8 @@ class MCPOpenAIClient:
 
             except Exception as e:
                 print(f"[WARNING] Skipping {key} ({url}) - Could not connect: {e}")
+                import traceback
+                traceback.print_exc()
 
 
     async def get_mcp_tools(self) -> List[Dict[str, Any]]:

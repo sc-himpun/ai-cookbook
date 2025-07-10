@@ -11,17 +11,57 @@ import json
 from contextlib import AsyncExitStack
 from dotenv import load_dotenv
 import time
+import ssl
+from urllib.parse import urlparse
+import ssl
+import aiohttp
+import asyncio
+from typing import Optional, Tuple
+from mcp.client import sse
 
 
 load_dotenv()
 
+
+class StreamReader:
+    def __init__(self, response: aiohttp.ClientResponse):
+        self._response = response
+
+    async def __anext__(self) -> str:
+        async for line in self._response.content:
+            yield line.decode("utf-8")
+
+    async def close(self):
+        await self._response.release()
+
+class StreamWriter:
+    def __init__(self, session: aiohttp.ClientSession):
+        self._session = session
+
+    async def write(self, *args, **kwargs):
+        pass  # unused in this case
+
+    async def close(self):
+        await self._session.close()
+
+# Monkey-patched sse_client with optional SSL context
+async def patched_sse_client(url: str, ssl_context: Optional[ssl.SSLContext] = None) -> Tuple[StreamReader, StreamWriter]:
+    connector = aiohttp.TCPConnector(ssl=ssl_context)
+    session = aiohttp.ClientSession(connector=connector)
+    resp = await session.get(url)
+    reader = StreamReader(resp)
+    writer = StreamWriter(session)
+    return reader, writer
+
+# Monkey-patch
+sse.sse_client = patched_sse_client
 
 # os.environ["OPENAI_API_KEY"] = "lm-studio"
 # os.environ["OPENAI_API_BASE"] = "http://192.168.29.53:1234/v1"  # Adjust if needed
 # os.environ["OPENAI_API_KEY"] = ""
 
 nest_asyncio.apply()  # Needed to run interactive python
-
+UNVERIFIED_SSL_CONTEXT = ssl._create_unverified_context()
 
 
 class MCPOpenAIClient:
@@ -47,16 +87,31 @@ class MCPOpenAIClient:
             # "azure": "http://localhost:5008/sse",
             # "onedrive": "http://localhost:8056/sse",
             # "onedrive-business_sharepoint": "http://localhost:8057/sse",
-            "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
+            # "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
             # "jira"  : "http://localhost:8002/mcp-server/sse/",
-             "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
+             "slack": "https://localhost:8003/mcp-server/sse/",
         }
+
+        from urllib.parse import urlparse
 
         for key, url in servers.items():
             try:
                 print(f"Connecting to {key} at {url}...")
-                transport = await self.exit_stack.enter_async_context(sse_client(url))
-                reader, writer = transport
+                parsed_url = urlparse(url)
+
+                if parsed_url.scheme == "https":
+                    ca_path = os.path.expanduser("~/AppData/Local/mkcert/rootCA.pem")
+                    ssl_context = ssl.create_default_context(cafile=ca_path)
+                else:
+                    ssl_context = None
+
+                # ✅ Await the coroutine and unpack
+                reader, writer = await sse.sse_client(url, ssl_context=ssl_context)
+
+                # ✅ Register cleanup
+                await self.exit_stack.enter_async_context(reader)
+                await self.exit_stack.enter_async_context(writer)
+
                 session = await self.exit_stack.enter_async_context(ClientSession(reader, writer))
                 await session.initialize()
                 self.sessions[key] = session
@@ -68,6 +123,9 @@ class MCPOpenAIClient:
 
             except Exception as e:
                 print(f"[WARNING] Skipping {key} ({url}) - Could not connect: {e}")
+                import traceback
+                traceback.print_exc()
+
 
 
     async def get_mcp_tools(self) -> List[Dict[str, Any]]:
