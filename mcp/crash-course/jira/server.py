@@ -14,7 +14,7 @@ CLIENT_ID = os.getenv("JIRA_CLIENT_ID")
 CLIENT_SECRET = os.getenv("JIRA_CLIENT_SECRET")
 SCOPES = os.getenv("JIRA_SCOPES", "read:jira-user read:jira-work read:me write:jira-work").split()
 
-PORT  = os.getenv("JIRA_MCP_PORT", "8002")  # Port for the FastMCP server
+PORT  = int(os.getenv("JIRA_MCP_PORT", "8002"))  # Port for the FastMCP server
 REDIRECT_URI = os.getenv("JIRA_MCP_REDIRECT_URI", f"http://localhost:{PORT}/oauth2callback")
 # PORT = 8002
 # REDIRECT_URI = f"http://localhost:{PORT}/oauth2callback"

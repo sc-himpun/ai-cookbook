@@ -38,17 +38,18 @@ class MCPOpenAIClient:
 
     async def connect_to_servers(self):
         servers = {
-            "s3": "http://localhost:8050/sse",
+            # "s3": "http://localhost:8050/sse",
             # "gdrive": "http://localhost:8051/sse",
-            "github": "http://localhost:8052/sse",
-            "youtrack": "http://localhost:8053/sse",
-            "slack": "http://localhost:8054/sse",
-            "zoom": "http://localhost:8055/sse",
+            # "github": "http://localhost:8052/sse",
+            # "youtrack": "http://localhost:8053/sse",
+            # "slack": "http://localhost:8054/sse",
+            # "zoom": "http://localhost:8055/sse",
             # # "azure": "http://192.168.29.53:5008/sse",
             # "azure": "http://localhost:5008/sse",
             # "onedrive": "http://localhost:8056/sse",
-            "onedrive-business_sharepoint": "http://localhost:8057/sse",
-            "gmail": "http://localhost:8000/mcp-server/sse/",
+            # "onedrive-business_sharepoint": "http://localhost:8057/sse",
+            "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
+            "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
             "jira"  : "http://localhost:8002/mcp-server/sse/",
         }
 
