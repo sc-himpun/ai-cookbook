@@ -33,8 +33,10 @@ SCOPES = [
 # ─── Token Store ─────────────────────────────────────────────────────────────
 user_tokens: Dict[str, Dict] = {}
 
-PORT=8000  # Port for the FastMCP server
-REDIRECT_URI = f"http://localhost:{PORT}/oauth2callback"
+PORT =  int(os.getenv("GOOGLE_MCP_PORT", "8000"))  # Port for the FastMCP server
+REDIRECT_URI = os.getenv("GOOGLE_MCP_REDIRECT_URI", f"http://localhost:{PORT}/oauth2callback")
+# PORT=8000  # Port for the FastMCP server
+# REDIRECT_URI = f"http://localhost:{PORT}/oauth2callback"
 
 # ─── MCP Setup ───────────────────────────────────────────────────────────────
 mcp = FastMCP("gmail-mcp")

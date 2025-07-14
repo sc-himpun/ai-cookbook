@@ -24,7 +24,8 @@ CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
 REDIRECT_URI = os.getenv("AZURE_REDIRECT_URI")
-PORT = 8007
+PORT = int(os.getenv("AZURE_MCP_PORT", "8007")) 
+# PORT = 8007
 SCOPES = ["User.Read", "Files.Read", "Sites.Read.All", "offline_access"]
 
 AUTH_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize"
@@ -466,4 +467,4 @@ app = Starlette(routes=routes, lifespan=mcp_app.lifespan)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

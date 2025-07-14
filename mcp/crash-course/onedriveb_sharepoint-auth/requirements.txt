@@ -21,4 +21,4 @@ nest_asyncio
 python-docx 
 PyMuPDF 
 aiohttp
-kiota-abstractions>=1.0.0
+# kiota-abstractions>=1.0.0

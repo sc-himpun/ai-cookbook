@@ -26,7 +26,7 @@ docker build -t mcp-server-onedrive-sharepoint .
 
 ```bash
 
-docker run --env-file .env --network dbnetwork  --name mcp-server-onedrive-sharepoint -p 8057:8057  -d mcp-server-onedrive-sharepoint
+docker run --env-file .env --network dbnetwork  --name mcp-server-onedrive-sharepoint -p 8007:8007  -d mcp-server-onedrive-sharepoint
 
 ```
 
