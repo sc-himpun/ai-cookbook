@@ -1,0 +1,12 @@
+mcp[cli]
+boto3
+fastmcp
+openai
+langchain
+fastmcp-http
+langchain-community
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+google-auth 
+PyGithub
