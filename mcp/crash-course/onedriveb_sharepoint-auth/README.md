@@ -19,14 +19,14 @@ This project demonstrates how to run an MCP (Model Control Protocol) server usin
 ### Step 1: Build the Docker image
 
 ```bash
-docker build -t mcp-server-onedrive-sharepoint .
+docker build -t mcp-server-onedrive-sharepoint-auth .
 ```
 
 ### Step 2: Run the Docker container
 
 ```bash
 
-docker run --env-file .env --network dbnetwork  --name mcp-server-onedrive-sharepoint -p 8007:8007  -d mcp-server-onedrive-sharepoint
+docker run --env-file .env --network dbnetwork  --name mcp-server-onedrive-sharepoint-auth -p 8007:8007  -d mcp-server-onedrive-sharepoint-auth
 
 ```
 

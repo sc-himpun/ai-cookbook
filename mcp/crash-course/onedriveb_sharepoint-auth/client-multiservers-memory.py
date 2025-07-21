@@ -49,6 +49,7 @@ class MCPOpenAIClient:
             # "onedrive": "http://localhost:8056/sse",
             # "onedrive-business_sharepoint": "http://localhost:8057/sse",
             "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
+            # "odata": "http://localhost:8080/sse",
         }
 
         for key, url in servers.items():
@@ -67,6 +68,8 @@ class MCPOpenAIClient:
 
             except Exception as e:
                 print(f"[WARNING] Skipping {key} ({url}) - Could not connect: {e}")
+                import traceback
+                traceback.print_exc()
 
 
     async def get_mcp_tools(self) -> List[Dict[str, Any]]:

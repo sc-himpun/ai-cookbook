@@ -38,7 +38,7 @@ class MCPOpenAIClient:
 
     async def connect_to_servers(self):
         servers = {
-            # "s3": "http://localhost:8050/sse",
+            "s3": "http://localhost:8050/sse",
             # "gdrive": "http://localhost:8051/sse",
             # "github": "http://localhost:8052/sse",
             # "youtrack": "http://localhost:8053/sse",
@@ -47,9 +47,9 @@ class MCPOpenAIClient:
             # "azure": "http://localhost:5008/sse",
             # "onedrive": "http://localhost:8056/sse",
             # "onedrive-business_sharepoint": "http://localhost:8057/sse",
-            "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
+            # "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
             # "jira"  : "http://localhost:8002/mcp-server/sse/",
-            #  "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
+             "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
         }
 
         for key, url in servers.items():

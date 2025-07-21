@@ -187,7 +187,8 @@ async def gdrive_search_files(
             if file["id"] in seen_ids:
                 continue
             if file["mimeType"] == "application/vnd.google-apps.document":
-                # Let Google Drive search inside Google Docs using fullText
+                # Log when searching inside a Google Doc
+                print(f"[GDRIVE] Searching inside Google Doc: {file['name']} (ID: {file['id']}) for '{keyword}'")
                 try:
                     def docs_query():
                         query = f"fullText contains '{keyword}' and trashed = false and mimeType = 'application/vnd.google-apps.document'"
@@ -201,17 +202,20 @@ async def gdrive_search_files(
                     if file["id"] in doc_ids:
                         results.append({"name": file["name"], "id": file["id"]})
                         seen_ids.add(file["id"])
-                except Exception:
+                except Exception as e:
+                    print(f"[GDRIVE] Error scanning file {file['name']} (ID: {file['id']}): {e}")
                     continue
 
     # Step 3: Client-side scan for text content, with timeout
     if search_type in ["content", "both"]:
         async def scan_file(file):
             try:
+                print(f"[GDRIVE] Downloading and scanning file: {file['name']} (ID: {file['id']}) for '{keyword}'")
                 content = await loop.run_in_executor(None, gdrive_download_file_content, service, file["id"])
                 if keyword.lower() in content.lower():
                     return {"name": file["name"], "id": file["id"]}
-            except Exception:
+            except Exception as e:
+                print(f"[GDRIVE] Error scanning file {file['name']} (ID: {file['id']}): {e}")
                 return None
         scan_tasks = [scan_file(file) for file in all_files if file["id"] not in seen_ids]
         try:
@@ -298,7 +302,6 @@ async def gdrive_list_all_files(
 
     creds = Credentials(token=user_tokens[email]['access_token'])
     service = build('drive', 'v3', credentials=creds)
-    import asyncio
     loop = asyncio.get_event_loop()
     # If folder_id looks like a name (not a real ID), resolve it
     if folder_id != "root" and (len(folder_id) < 20 or not folder_id.isalnum()):
