@@ -16,6 +16,10 @@ from starlette.applications import Starlette
 from googleapiclient.http import MediaIoBaseDownload
 import io
 
+import asyncio
+
+# ─── Timeout Config ─────────────────────────────────────────────────────────
+MCP_TIMEOUT_SECONDS = 180  # Timeout for long-running operations (seconds)
 
 # ─── Load .env ───────────────────────────────────────────────────────────────
 load_dotenv()
@@ -115,13 +119,13 @@ def list_authorized_accounts() -> str:
 
 
 @mcp.tool(name="gdrive_search_files")
-def gdrive_search_files(
+async def gdrive_search_files(
     keyword: str,
     email: str,
     search_type: str = "both",  # "filename", "content", or "both"
     file_type: str = "text",    # "text" or "all"
     path: str = "root",         # Folder name or "root"
-    depth: int = 2              # Folder traversal depth
+    depth: int = 3              # Folder traversal depth
 ) -> str:
     """
     Hybrid search in Google Drive combining:
@@ -132,7 +136,7 @@ def gdrive_search_files(
     Args:
         keyword: Keyword to search for (case-insensitive).
         email: OAuth-authenticated Gmail address.
-        search_type: "filename", "content", or "both".
+        search_type: "filename", "content", or "both". "content" searches inside Google Docs and text files.
         file_type: "text" for readable formats or "all" for any file type.
         path: Folder name (case-insensitive) or "root" to search from the top level.
         depth: Max folder depth to search in (default is 2).
@@ -149,20 +153,23 @@ def gdrive_search_files(
     creds = Credentials(token=user_tokens[email]['access_token'])
     service = build('drive', 'v3', credentials=creds)
 
+    # Helper to run blocking code in executor
+    loop = asyncio.get_event_loop()
+
     # Resolve folder path to folder ID
     try:
-        folder_id = resolve_folder_id_by_name(service, path) if path != "root" else "root"
+        folder_id = await loop.run_in_executor(None, resolve_folder_id_by_name, service, path) if path != "root" else "root"
     except FileNotFoundError as e:
         return str(e)
 
-    # Traverse target folder to get all files within depth
-    all_files = _gdrive_recursive_list(
-        service,
-        folder_id=folder_id,
-        current_depth=0,
-        max_depth=depth,
-        file_type=file_type
-    )
+    # Traverse target folder to get all files within depth, with timeout
+    try:
+        all_files = await asyncio.wait_for(
+            loop.run_in_executor(None, _gdrive_recursive_list, service, folder_id, 0, depth, file_type),
+            timeout=MCP_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        return f"⏰ Timeout: Search took longer than {MCP_TIMEOUT_SECONDS//60} minutes. Please try a narrower query."
 
     results = []
     seen_ids = set()
@@ -180,33 +187,45 @@ def gdrive_search_files(
             if file["id"] in seen_ids:
                 continue
             if file["mimeType"] == "application/vnd.google-apps.document":
-                # Let Google Drive search inside Google Docs using fullText
+                # Log when searching inside a Google Doc
+                print(f"[GDRIVE] Searching inside Google Doc: {file['name']} (ID: {file['id']}) for '{keyword}'")
                 try:
-                    query = f"fullText contains '{keyword}' and trashed = false and mimeType = 'application/vnd.google-apps.document'"
-                    doc_match = service.files().list(
-                        q=query,
-                        fields="files(id)",
-                        pageSize=100
-                    ).execute()
-                    doc_ids = {f["id"] for f in doc_match.get("files", [])}
+                    def docs_query():
+                        query = f"fullText contains '{keyword}' and trashed = false and mimeType = 'application/vnd.google-apps.document'"
+                        doc_match = service.files().list(
+                            q=query,
+                            fields="files(id)",
+                            pageSize=100
+                        ).execute()
+                        return {f["id"] for f in doc_match.get("files", [])}
+                    doc_ids = await loop.run_in_executor(None, docs_query)
                     if file["id"] in doc_ids:
                         results.append({"name": file["name"], "id": file["id"]})
                         seen_ids.add(file["id"])
-                except Exception:
+                except Exception as e:
+                    print(f"[GDRIVE] Error scanning file {file['name']} (ID: {file['id']}): {e}")
                     continue
 
-    # Step 3: Client-side scan for text content
+    # Step 3: Client-side scan for text content, with timeout
     if search_type in ["content", "both"]:
-        for file in all_files:
-            if file["id"] in seen_ids:
-                continue
+        async def scan_file(file):
             try:
-                content = gdrive_download_file_content(service, file["id"])
+                print(f"[GDRIVE] Downloading and scanning file: {file['name']} (ID: {file['id']}) for '{keyword}'")
+                content = await loop.run_in_executor(None, gdrive_download_file_content, service, file["id"])
                 if keyword.lower() in content.lower():
-                    results.append({"name": file["name"], "id": file["id"]})
-                    seen_ids.add(file["id"])
-            except Exception:
-                continue  # unreadable
+                    return {"name": file["name"], "id": file["id"]}
+            except Exception as e:
+                print(f"[GDRIVE] Error scanning file {file['name']} (ID: {file['id']}): {e}")
+                return None
+        scan_tasks = [scan_file(file) for file in all_files if file["id"] not in seen_ids]
+        try:
+            scan_results = await asyncio.wait_for(asyncio.gather(*scan_tasks), timeout=MCP_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            return f"⏰ Timeout: Content scan took longer than {MCP_TIMEOUT_SECONDS//60} minutes. Please try a narrower query."
+        for result in scan_results:
+            if result:
+                results.append(result)
+                seen_ids.add(result["id"])
 
     return json.dumps(results) if results else "No matching files found."
 
@@ -237,15 +256,18 @@ def resolve_folder_id_by_name(service, folder_name: str) -> str:
 
 
 @mcp.tool(name="gdrive_fetch_file")
-def gdrive_fetch_file(file_id: str, email: str) -> str:
+async def gdrive_fetch_file(file_id: str, email: str) -> str:
     """Fetch content of a file by its ID from Google Drive."""
     if email not in user_tokens:
         return "❌ Email not authorized. Please login first."
 
     creds = Credentials(token=user_tokens[email]['access_token'])
     service = build('drive', 'v3', credentials=creds)
+    import asyncio
+    loop = asyncio.get_event_loop()
     try:
-        return gdrive_download_file_content(service, file_id)
+        content = await loop.run_in_executor(None, gdrive_download_file_content, service, file_id)
+        return content
     except Exception as e:
         return f"Error downloading file: {str(e)}"
 
@@ -265,7 +287,7 @@ def gdrive_download_file_content(service, file_id: str) -> str:
 
 
 @mcp.tool(name="gdrive_list_all_files")
-def gdrive_list_all_files(
+async def gdrive_list_all_files(
     email: str,
     folder_id: str = "1SYeijTDz1msCFvNbN4U6ai2Zol1AJh-i",
     depth: int = 2,
@@ -280,10 +302,14 @@ def gdrive_list_all_files(
 
     creds = Credentials(token=user_tokens[email]['access_token'])
     service = build('drive', 'v3', credentials=creds)
-
-    all_files = _gdrive_recursive_list(
-        service, folder_id, current_depth=0, max_depth=depth, file_type=file_type
-    )
+    loop = asyncio.get_event_loop()
+    # If folder_id looks like a name (not a real ID), resolve it
+    if folder_id != "root" and (len(folder_id) < 20 or not folder_id.isalnum()):
+        try:
+            folder_id = await loop.run_in_executor(None, resolve_folder_id_by_name, service, folder_id)
+        except FileNotFoundError as e:
+            return str(e)
+    all_files = await loop.run_in_executor(None, _gdrive_recursive_list, service, folder_id, 0, depth, file_type)
     if not all_files:
         return "No matching files found."
 

@@ -2,7 +2,7 @@ import os
 import json
 import base64
 import requests
-from typing import Dict
+from typing import Dict, Optional
 
 from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
@@ -42,13 +42,54 @@ REDIRECT_URI = os.getenv("GOOGLE_MCP_REDIRECT_URI", f"http://localhost:{PORT}/oa
 mcp = FastMCP("gmail-mcp")
 
 
+from google.auth.transport.requests import Request as GoogleRequest
+
+def get_google_creds(metadata: Optional[Dict]) -> Optional[Credentials]:
+    """
+    Extract and refresh Google credentials from metadata.
+
+    Args:
+        metadata (Optional[Dict]): Dict with 'access_token', 'refresh_token', etc.
+
+    Returns:
+        google.oauth2.credentials.Credentials or None
+    """
+    if not metadata:
+        return None
+
+    access_token = metadata.get("access_token")
+    refresh_token = metadata.get("refresh_token")
+    token_uri = "https://oauth2.googleapis.com/token"
+
+    if not access_token:
+        return None
+
+    creds = Credentials(
+        token=access_token,
+        refresh_token=refresh_token if refresh_token else None,
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        token_uri=token_uri
+    )
+
+    # Refresh if expired and refresh_token is available
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(GoogleRequest())
+        except Exception as e:
+            print(f"🔁 Failed to refresh token: {e}")
+            return None
+
+    return creds
+
+
 @mcp.tool(name="gmail_search_emails")
-def search_emails(query: str, email: str):
+def search_emails(query: str, metadata: Dict = {}):
     """Search for emails in the user's Gmail account."""
-    if email not in user_tokens:
+    creds = get_google_creds(metadata)
+    if not creds:
         return "❌ Email not authorized. Please login first."
 
-    creds = Credentials(token=user_tokens[email]['access_token'])
     service = build('gmail', 'v1', credentials=creds)
     results = service.users().messages().list(userId='me', q=query, maxResults=5).execute()
     messages = results.get('messages', [])
@@ -63,12 +104,12 @@ def search_emails(query: str, email: str):
     return "\n---\n".join(summary)
 
 @mcp.tool(name="gmail_fetch_email")
-def fetch_email(message_id: str, email: str):
+def fetch_email(message_id: str, metadata: Dict = {}):
     """Fetch a specific email by its ID."""
-    if email not in user_tokens:
+    creds = get_google_creds(metadata)
+    if not creds:
         return "❌ Email not authorized. Please login first."
 
-    creds = Credentials(token=user_tokens[email]['access_token'])
     service = build('gmail', 'v1', credentials=creds)
     full_msg = service.users().messages().get(userId='me', id=message_id).execute()
     payload = full_msg.get('payload', {})
@@ -106,18 +147,30 @@ def get_authorization_url() -> str:
 
 
 @mcp.tool(name="gmail_list_authorized_accounts")
-def list_authorized_accounts() -> str:
-    """List all Gmail accounts that have been authorized."""
+def list_authorized_accounts(metadata: Dict = {}) -> str:
+    global user_tokens
+
+    # Auto-register user from metadata
+    creds = get_google_creds(metadata)
+    if creds and "email" in metadata:
+        email = metadata["email"]
+        user_tokens[email] = {
+            "access_token": creds.token,
+            "refresh_token": creds.refresh_token,
+        }
+
     if not user_tokens:
         return "No accounts have been authorized yet."
+
     return "\n".join(user_tokens.keys())
+
 
 
 
 @mcp.tool(name="gdrive_search_files")
 def gdrive_search_files(
     keyword: str,
-    email: str,
+    metadata: Dict = {},
     search_type: str = "both",  # "filename", "content", or "both"
     file_type: str = "text",    # "text" or "all"
     path: str = "root",         # Folder name or "root"
@@ -140,13 +193,13 @@ def gdrive_search_files(
     Returns:
         A JSON list of matching files (name + ID), or a message if no matches found.
     """
-    if email not in user_tokens:
+    creds = get_google_creds(metadata)
+    if not creds:
         return "❌ Email not authorized. Please login first."
 
     import io
     from googleapiclient.http import MediaIoBaseDownload
 
-    creds = Credentials(token=user_tokens[email]['access_token'])
     service = build('drive', 'v3', credentials=creds)
 
     # Resolve folder path to folder ID
@@ -237,12 +290,12 @@ def resolve_folder_id_by_name(service, folder_name: str) -> str:
 
 
 @mcp.tool(name="gdrive_fetch_file")
-def gdrive_fetch_file(file_id: str, email: str) -> str:
+def gdrive_fetch_file(file_id: str, metadata: Dict = {}) -> str:
     """Fetch content of a file by its ID from Google Drive."""
-    if email not in user_tokens:
+    creds = get_google_creds(metadata)
+    if not creds:
         return "❌ Email not authorized. Please login first."
 
-    creds = Credentials(token=user_tokens[email]['access_token'])
     service = build('drive', 'v3', credentials=creds)
     try:
         return gdrive_download_file_content(service, file_id)
@@ -266,7 +319,7 @@ def gdrive_download_file_content(service, file_id: str) -> str:
 
 @mcp.tool(name="gdrive_list_all_files")
 def gdrive_list_all_files(
-    email: str,
+    metadata: Dict = {},
     folder_id: str = "1SYeijTDz1msCFvNbN4U6ai2Zol1AJh-i",
     depth: int = 2,
     file_type: str = "text"  # "text" or "all"
@@ -275,10 +328,10 @@ def gdrive_list_all_files(
     Recursively list all files in the user's Google Drive under the given folder,
     filtered by file type and limited by depth.
     """
-    if email not in user_tokens:
+    creds = get_google_creds(metadata)
+    if not creds:
         return "❌ Email not authorized. Please login first."
 
-    creds = Credentials(token=user_tokens[email]['access_token'])
     service = build('drive', 'v3', credentials=creds)
 
     all_files = _gdrive_recursive_list(
@@ -350,32 +403,77 @@ def _gdrive_recursive_list(
 
 # ─── Auth Endpoints ──────────────────────────────────────────────────────────
 
+# async def oauth2callback(request: Request):
+#     code = request.query_params.get("code")
+#     data = {
+#         "code": code,
+#         "client_id": CLIENT_ID,
+#         "client_secret": CLIENT_SECRET,
+#         "redirect_uri": REDIRECT_URI,
+#         "grant_type": "authorization_code"
+#     }
+#     resp = requests.post("https://oauth2.googleapis.com/token", data=data)
+#     tokens = resp.json()
+
+#     if "access_token" not in tokens:
+#         return JSONResponse({"error": "Token exchange failed", "details": tokens}, status_code=400)
+
+#     userinfo = requests.get(
+#         "https://www.googleapis.com/oauth2/v3/userinfo",
+#         headers={"Authorization": f"Bearer {tokens['access_token']}"}
+#     ).json()
+
+#     email = userinfo.get("email")
+#     if not email:
+#         return JSONResponse({"error": "Could not fetch email from userinfo"}, status_code=400)
+
+#     user_tokens[email] = tokens
+#     return JSONResponse({"message": f"Authenticated as {email}"})
+
+
+
 async def oauth2callback(request: Request):
     code = request.query_params.get("code")
     data = {
-        "code": code,
+        "grant_type": "authorization_code",
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
+        "code": code,
         "redirect_uri": REDIRECT_URI,
-        "grant_type": "authorization_code"
     }
-    resp = requests.post("https://oauth2.googleapis.com/token", data=data)
-    tokens = resp.json()
 
-    if "access_token" not in tokens:
-        return JSONResponse({"error": "Token exchange failed", "details": tokens}, status_code=400)
+    token_resp = requests.post("https://oauth2.googleapis.com/token", data=data).json()
+    access_token = token_resp.get("access_token")
+    refresh_token = token_resp.get("refresh_token")
 
-    userinfo = requests.get(
-        "https://www.googleapis.com/oauth2/v3/userinfo",
-        headers={"Authorization": f"Bearer {tokens['access_token']}"}
+    if not access_token:
+        return JSONResponse({"error": "Token exchange failed", "details": token_resp}, status_code=400)
+
+    # Get user info using the access_token
+    user_info = requests.get(
+        "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
+        headers={"Authorization": f"Bearer {access_token}"}
     ).json()
 
-    email = userinfo.get("email")
-    if not email:
-        return JSONResponse({"error": "Could not fetch email from userinfo"}, status_code=400)
+    email = user_info.get("email")
 
-    user_tokens[email] = tokens
-    return JSONResponse({"message": f"Authenticated as {email}"})
+    if not email:
+        return JSONResponse({"error": "Failed to get user email", "user_info": user_info}, status_code=400)
+
+    # user_tokens[email] = {
+    #     "access_token": access_token,
+    #     "refresh_token": refresh_token,
+    # }
+
+    print(f"✅ Authenticated: {email}")
+    return JSONResponse({
+        "message": f"Authenticated as {email}",
+        "email": email,
+        "access_token": access_token,
+        "refresh_token": refresh_token
+    })
+
+
 
 
 async def authorize(request: Request):
@@ -416,3 +514,4 @@ app = Starlette(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
