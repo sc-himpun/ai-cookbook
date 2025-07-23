@@ -505,19 +505,12 @@ def sharepoint_list_drive_items(metadata: Dict, drive_id: str, folder_id: str = 
             return "❌ Not authorized."
 
         try:
-            if folder_id_sanitized == "root":
-                resp = await client.drives \
-                    .by_drive_id(drive_id) \
-                    .root \
-                    .children \
-                    .get()
-            else:
-                resp = await client.drives \
-                    .by_drive_id(drive_id) \
-                    .items \
-                    .by_drive_item_id(folder_id_sanitized) \
-                    .children \
-                    .get()
+            resp = await client.drives \
+                .by_drive_id(drive_id) \
+                .items \
+                .by_drive_item_id(folder_id_sanitized) \
+                .children \
+                .get()
 
             return [
                 {
@@ -532,6 +525,7 @@ def sharepoint_list_drive_items(metadata: Dict, drive_id: str, folder_id: str = 
             return f"❌ Error accessing SharePoint drive items: {str(e)}"
 
     return json.dumps(asyncio.run(inner()))
+
 
 
 
