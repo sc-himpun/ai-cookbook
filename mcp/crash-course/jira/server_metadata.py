@@ -18,8 +18,7 @@ SCOPES = os.getenv("JIRA_SCOPES", "offline_access read:jira-user read:jira-work 
 
 PORT  = int(os.getenv("JIRA_MCP_PORT", "8002"))  # Port for the FastMCP server
 REDIRECT_URI = os.getenv("JIRA_MCP_REDIRECT_URI", f"http://localhost:{PORT}/oauth2callback")
-# PORT = 8002
-# REDIRECT_URI = f"http://localhost:{PORT}/oauth2callback"
+
 
 # ─── Token Store ─────────────────────────────────────────────────────────────
 user_tokens: Dict[str, Dict] = {}
@@ -449,9 +448,15 @@ async def oauth2callback(request: Request):
     #     "cloud_id": cloud_id,
     #     "refresh_token": refresh_token
     # }
-    print(f"User {email} authenticated successfully with cloud ID {cloud_id}")
+
     print("refresh_token:", refresh_token)
-    return JSONResponse({"message": f"Authenticated as {email}"})
+    return JSONResponse({
+        "message": f"Authenticated as {email}",
+        "email": email,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "cloud_id": cloud_id
+    })
 
 
 async def status(request: Request):
