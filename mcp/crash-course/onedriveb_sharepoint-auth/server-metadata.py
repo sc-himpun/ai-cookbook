@@ -451,50 +451,6 @@ def sharepoint_list_document_libraries(metadata: Dict, site_id: str) -> str:
     return json.dumps(asyncio.run(inner()))
 
 
-# @mcp.tool(name="sharepoint_list_document_libraries")
-# def sharepoint_list_document_libraries(metadata: Dict, site_id: str) -> str:
-#     """List all document libraries in a SharePoint site."""
-#     async def inner():
-#         client = await get_graph_client(metadata)
-#         if not client:
-#             return "❌ Not authorized."
-#         response = await client.sites.by_site_id(site_id).drives.get()
-#         return [{"name": d.name, "id": d.id} for d in response.value]
-#     return json.dumps(asyncio.run(inner()))
-
-# @mcp.tool(name="sharepoint_list_site_drive_items")
-# def sharepoint_list_site_drive_items(metadata: Dict, site_id: str, folder_id: str = "root") -> str:
-#     """List items in a SharePoint site folder."""
-#     async def inner():
-#         folder_id_sanitized = sanitize_folder_id(folder_id)
-#         client = await get_graph_client(metadata)
-#         if not client:
-#             return "❌ Not authorized."
-
-#         try:
-#             # Validate and get site's drive
-#             drive = await client.sites.by_site_id(site_id).drive.get()
-#             resp = await client.drives \
-#                 .by_drive_id(drive.id) \
-#                 .items \
-#                 .by_drive_item_id(folder_id_sanitized) \
-#                 .children \
-#                 .get()
-
-#             return [
-#                 {
-#                     "name": item.name,
-#                     "id": item.id,
-#                     "web_url": item.web_url,
-#                     "is_folder": bool(item.folder),
-#                 }
-#                 for item in resp.value
-#             ]
-#         except Exception as e:
-#             return f"❌ Error accessing SharePoint site drive items: {str(e)}"
-
-#     return json.dumps(asyncio.run(inner()))
-
 @mcp.tool(name="sharepoint_list_drive_items")
 def sharepoint_list_drive_items(metadata: Dict, drive_id: str, folder_id: str = "root") -> str:
     """List items in a SharePoint drive folder."""
