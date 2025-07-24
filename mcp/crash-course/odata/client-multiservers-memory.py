@@ -224,6 +224,12 @@ class MCPOpenAIClient:
 # query = "change the state of SCRUM-12 to To-Do"
 # query = "show comments on SCRUM-12"
 
+# query = "show some products"
+# query = "Retrieve few Business Partners"
+# query = "how many unique products are there"
+# query = "get sales orders of business partner with id '0100000000'"
+# query = "what is the product in sales order item with id '0500000000' and line item 10"
+
 
 async def main():
     client = MCPOpenAIClient()
