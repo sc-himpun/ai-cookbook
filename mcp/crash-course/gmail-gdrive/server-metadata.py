@@ -2,7 +2,7 @@ import os
 import json
 import base64
 import requests
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
@@ -165,6 +165,14 @@ def list_authorized_accounts(metadata: Dict = {}) -> str:
     return "\n".join(user_tokens.keys())
 
 
+def get_drive_service(metadata: Dict):
+    """
+    Create a Google Drive API service using credentials from metadata.
+    """
+    creds = get_google_creds(metadata)
+    if not creds:
+        raise ValueError("Could not get valid Google credentials from metadata.")
+    return build("drive", "v3", credentials=creds)
 
 
 @mcp.tool(name="gdrive_search_files")
@@ -204,7 +212,8 @@ def gdrive_search_files(
 
     # Resolve folder path to folder ID
     try:
-        folder_id = resolve_folder_id_by_name(service, path) if path != "root" else "root"
+        folder_id = resolve_drive_id_by_name(service, path, is_folder=True) if path != "root" else "root"
+        # folder_id = resolve_folder_id_by_name(service, path) if path != "root" else "root"
     except FileNotFoundError as e:
         return str(e)
 
@@ -264,29 +273,93 @@ def gdrive_search_files(
     return json.dumps(results) if results else "No matching files found."
 
 
+# def resolve_folder_id_by_name(service, folder_name: str) -> str:
+#     """Resolve a folder name (case-insensitive) to its Google Drive folder ID."""
+#     # Use name contains (not exact match) + filter in Python for case-insensitive match
+#     query = (
+#         "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+#     )
+#     response = service.files().list(
+#         q=query,
+#         spaces='drive',
+#         fields="files(id, name)",
+#         pageSize=1000  # Allow scanning up to 1000 folders
+#     ).execute()
+
+#     folders = response.get("files", [])
+#     for folder in folders:
+#         if folder["name"].lower() == folder_name.lower():
+#             return folder["id"]
+
+#     raise FileNotFoundError(f"❌ Folder '{folder_name}' not found (case-insensitive match).")
 
 
+def resolve_drive_id_by_name(
+    service,
+    name: str,
+    is_folder: bool = False,
+    parent_id: Optional[str] = None,
+    match_mode: str = "exact"  # "exact", "startswith", or "contains"
+) -> str:
+    """
+    Resolve a file or folder name to its Drive ID.
 
-def resolve_folder_id_by_name(service, folder_name: str) -> str:
-    """Resolve a folder name (case-insensitive) to its Google Drive folder ID."""
-    # Use name contains (not exact match) + filter in Python for case-insensitive match
-    query = (
-        "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-    )
+    Args:
+        service: Google Drive service object.
+        name (str): Name of the file or folder.
+        is_folder (bool): Whether to look for folders only.
+        parent_id (Optional[str]): Scope the search within a parent folder.
+        match_mode (str): "exact", "startswith", or "contains".
+
+    Returns:
+        str: The ID of the first matching item.
+
+    Raises:
+        FileNotFoundError: If no match is found.
+    """
+    mime_filter = "mimeType = 'application/vnd.google-apps.folder'" if is_folder else "mimeType != 'application/vnd.google-apps.folder'"
+    query_parts = [mime_filter, "trashed = false"]
+
+    if parent_id:
+        query_parts.append(f"'{parent_id}' in parents")
+
+    query = " and ".join(query_parts)
+
     response = service.files().list(
         q=query,
         spaces='drive',
         fields="files(id, name)",
-        pageSize=1000  # Allow scanning up to 1000 folders
+        pageSize=1000
     ).execute()
 
-    folders = response.get("files", [])
-    for folder in folders:
-        if folder["name"].lower() == folder_name.lower():
-            return folder["id"]
+    items = response.get("files", [])
+    name_lower = name.lower()
 
-    raise FileNotFoundError(f"❌ Folder '{folder_name}' not found (case-insensitive match).")
+    for item in items:
+        item_name = item["name"].lower()
+        if (
+            (match_mode == "exact" and item_name == name_lower) or
+            (match_mode == "startswith" and item_name.startswith(name_lower)) or
+            (match_mode == "contains" and name_lower in item_name)
+        ):
+            return item["id"]
 
+    raise FileNotFoundError(f"❌ {'Folder' if is_folder else 'File'} '{name}' not found with match mode '{match_mode}'.")
+
+
+@mcp.tool(name="gdrive_get_folder_id")
+def gdrive_get_folder_id(name: str, metadata: Dict) -> str:
+    """Get the Google Drive folder ID by name."""
+    creds = get_google_creds(metadata)
+    if not creds:
+        return "❌ Email not authorized. Please login first."
+
+    service = build('drive', 'v3', credentials=creds)
+    try:
+        folder_id = resolve_drive_id_by_name(service, name, is_folder=True)
+        return f"Folder ID for '{name}': {folder_id}"
+    except FileNotFoundError as e:
+        return str(e)
 
 
 @mcp.tool(name="gdrive_fetch_file")
@@ -317,10 +390,38 @@ def gdrive_download_file_content(service, file_id: str) -> str:
 
 
 
+
+@mcp.tool(name="gdrive_list_drive_folders")
+def list_drive_folders(metadata: Dict) -> List[Dict]:
+    """
+    Lists all non-trashed folders in the user's Google Drive.
+    """
+    service = get_drive_service(metadata)
+    results = service.files().list(
+        q="mimeType='application/vnd.google-apps.folder' and trashed=false",
+        fields="files(id, name)"
+    ).execute()
+    return results.get("files", [])
+
+
+@mcp.tool(name="gdrive_list_drive_folder_contents")
+def list_drive_folder_contents(folder_id: str, metadata: Dict) -> List[Dict]:
+    """
+    List files/folders inside a given folder.
+    """
+    service = get_drive_service(metadata)
+    query = f"'{folder_id}' in parents and trashed = false"
+    results = service.files().list(
+        q=query,
+        fields="files(id, name, mimeType)"
+    ).execute()
+    return results.get("files", [])
+
+
 @mcp.tool(name="gdrive_list_all_files")
 def gdrive_list_all_files(
+    folder_id: str,
     metadata: Dict = {},
-    folder_id: str = "1SYeijTDz1msCFvNbN4U6ai2Zol1AJh-i",
     depth: int = 2,
     file_type: str = "text"  # "text" or "all"
 ) -> str:
@@ -402,34 +503,6 @@ def _gdrive_recursive_list(
 
 
 # ─── Auth Endpoints ──────────────────────────────────────────────────────────
-
-# async def oauth2callback(request: Request):
-#     code = request.query_params.get("code")
-#     data = {
-#         "code": code,
-#         "client_id": CLIENT_ID,
-#         "client_secret": CLIENT_SECRET,
-#         "redirect_uri": REDIRECT_URI,
-#         "grant_type": "authorization_code"
-#     }
-#     resp = requests.post("https://oauth2.googleapis.com/token", data=data)
-#     tokens = resp.json()
-
-#     if "access_token" not in tokens:
-#         return JSONResponse({"error": "Token exchange failed", "details": tokens}, status_code=400)
-
-#     userinfo = requests.get(
-#         "https://www.googleapis.com/oauth2/v3/userinfo",
-#         headers={"Authorization": f"Bearer {tokens['access_token']}"}
-#     ).json()
-
-#     email = userinfo.get("email")
-#     if not email:
-#         return JSONResponse({"error": "Could not fetch email from userinfo"}, status_code=400)
-
-#     user_tokens[email] = tokens
-#     return JSONResponse({"message": f"Authenticated as {email}"})
-
 
 
 async def oauth2callback(request: Request):
