@@ -175,6 +175,28 @@ def get_drive_service(metadata: Dict):
     return build("drive", "v3", credentials=creds)
 
 
+@mcp.tool(name="gdrive_get_file_download_url")
+def gdrive_get_file_download_url(file_id: str, metadata: Dict = {}) -> str:
+    """Return a direct download URL for the given file."""
+    creds = get_google_creds(metadata)
+    if not creds:
+        return "❌ Email not authorized."
+
+    # Get download URL (via Drive API or export for Google Docs)
+    service =  get_drive_service(metadata)
+    file = service.files().get(fileId=file_id, fields="id, name, mimeType, webContentLink").execute()
+
+    # Google Docs require export
+    if file["mimeType"].startswith("application/vnd.google-apps"):
+        # Export to plain text (fallback)
+        export_mime = "text/plain"
+        export_url = f"https://www.googleapis.com/drive/v3/files/{file_id}/export?mimeType={export_mime}"
+    else:
+        export_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+
+    return f"{export_url}&access_token={creds.token}"
+
+
 @mcp.tool(name="gdrive_search_files")
 def gdrive_search_files(
     keyword: str,
@@ -273,25 +295,6 @@ def gdrive_search_files(
     return json.dumps(results) if results else "No matching files found."
 
 
-# def resolve_folder_id_by_name(service, folder_name: str) -> str:
-#     """Resolve a folder name (case-insensitive) to its Google Drive folder ID."""
-#     # Use name contains (not exact match) + filter in Python for case-insensitive match
-#     query = (
-#         "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-#     )
-#     response = service.files().list(
-#         q=query,
-#         spaces='drive',
-#         fields="files(id, name)",
-#         pageSize=1000  # Allow scanning up to 1000 folders
-#     ).execute()
-
-#     folders = response.get("files", [])
-#     for folder in folders:
-#         if folder["name"].lower() == folder_name.lower():
-#             return folder["id"]
-
-#     raise FileNotFoundError(f"❌ Folder '{folder_name}' not found (case-insensitive match).")
 
 
 def resolve_drive_id_by_name(

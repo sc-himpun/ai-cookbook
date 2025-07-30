@@ -14,8 +14,7 @@ from typing import Dict, List, Union
 import json
 from typing import List, Dict
 from collections import defaultdict
-from collections import defaultdict
-import re
+
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 load_dotenv()
@@ -32,10 +31,6 @@ DEFAULT_BASE_URL = "https://sapes5.sapdevcenter.com/sap/opu/odata/IWBEP/GWSAMPLE
 
 
 def get_entity_set_for_type(entity_type: str, metadata: dict) -> str:
-    """
-    Given an entity type and metadata, returns the corresponding entity set name.
-    If not found, returns the entity_type as a fallback.
-    """
     for entity_set, etype in metadata.get("entity_sets", {}).items():
         if etype == entity_type:
             return entity_set
@@ -46,18 +41,12 @@ def get_entity_set_for_type(entity_type: str, metadata: dict) -> str:
 
 
 def truncate_response(data: Any) -> str:
-    """
-    Converts data to string and truncates it if it exceeds MAX_CHARS.
-    """
     stringified = str(data)
     if len(stringified) > MAX_CHARS:
         return stringified[:MAX_CHARS] + f"\n...(truncated to {MAX_CHARS} chars)"
     return stringified
 
 def make_odata_request(url, headers=None, params=None, base_url=DEFAULT_BASE_URL):
-    """
-    Makes an HTTP GET request to the given OData URL with appropriate headers and authentication.
-    """
     headers = headers or {}
 
     # Choose correct Accept header based on endpoint
@@ -77,10 +66,6 @@ def make_odata_request(url, headers=None, params=None, base_url=DEFAULT_BASE_URL
 
 @mcp.tool(name="odata_search")
 def search_entity_set(entity_set: str, base_url: str = DEFAULT_BASE_URL, metadata: Optional[dict] = None, top: int = 5) -> str:
-    """
-    Searches an OData entity set and returns up to 'top' results as a JSON string.
-    Optionally uses metadata to resolve the entity set name.
-    """
     if metadata:
         entity_set = get_entity_set_for_type(entity_set, metadata)
     
@@ -103,9 +88,6 @@ def search_entity_set(entity_set: str, base_url: str = DEFAULT_BASE_URL, metadat
 
 @mcp.tool(name="odata_describe_entity_set")
 def describe_entity_set(entity_set: str, base_url: str = DEFAULT_BASE_URL) -> str:
-    """
-    Describes the schema (fields and types) of the specified OData entity set.
-    """
     url = f"{base_url.rstrip('/')}/$metadata"
     resp = make_odata_request(url, base_url=base_url)
     if not resp.ok:
@@ -120,9 +102,6 @@ def describe_entity_set(entity_set: str, base_url: str = DEFAULT_BASE_URL) -> st
 
 
 def quote_key_if_needed(key: str) -> str:
-    """
-    Ensures the key is properly quoted for OData requests if needed.
-    """
     if key.isdigit() or key.startswith("("):  # numeric or composite key
         return key
     if not (key.startswith("'") and key.endswith("'")):
@@ -132,9 +111,6 @@ def quote_key_if_needed(key: str) -> str:
 
 @mcp.tool(name="odata_entity_by_key")
 def get_entity_by_key(entity_set: str, key: str, base_url: str = DEFAULT_BASE_URL) -> str:
-    """
-    Retrieves a single entity from the specified entity set by its key.
-    """
     key = quote_key_if_needed(key)
     select_fields = get_select_fields_excluding_binary(entity_set, base_url)
     select_query = f"?$select={select_fields}&$format=json" if select_fields else "?$format=json"
@@ -147,77 +123,9 @@ def get_entity_by_key(entity_set: str, key: str, base_url: str = DEFAULT_BASE_UR
     except Exception as e:
         return f"❌ Failed to parse JSON response: {str(e)}"
 
-@mcp.tool(name="odata_filter_by_property")
-def odata_filter_by_property(
-    entity_set: str,
-    property_name: str,
-    value: Union[str, int, float, bool],
-    top: int = 50,
-    base_url: str = DEFAULT_BASE_URL,
-    metadata: Optional[Dict] = None,
-) -> List[Dict]:
-    """Filter entities where a property equals a specific value."""
-    from urllib.parse import quote
-
-    filter_str = f"{property_name} eq {quote(str(value))}" if isinstance(value, (int, float, bool)) else f"{property_name} eq '{quote(str(value))}'"
-    url = f"{base_url.rstrip('/')}/{entity_set}?$filter={filter_str}&$top={top}"
-    headers = {"Accept": "application/json"}
-    resp = make_odata_request(url, headers=headers, base_url=base_url)
-    if not resp.ok:
-        raise Exception(f"Filter failed: {resp.text}")
-    return resp.json().get("d", {}).get("results", [])
-
-
-@mcp.tool(name="odata_sort_by_property")
-def odata_sort_by_property(
-    entity_set: str,
-    property_name: str,
-    order: str = "asc",  # or "desc"
-    top: int = 50,
-    base_url: str = DEFAULT_BASE_URL,
-    metadata: Optional[Dict] = None,
-) -> List[Dict]:
-    """Sort entities by a property."""
-    order_str = f"{property_name} {order}"
-    url = f"{base_url.rstrip('/')}/{entity_set}?$orderby={order_str}&$top={top}"
-    headers = {"Accept": "application/json"}
-    resp = make_odata_request(url, headers=headers, base_url=base_url)
-    if not resp.ok:
-        raise Exception(f"Sort failed: {resp.text}")
-    return resp.json().get("d", {}).get("results", [])
-
-
-@mcp.tool(name="odata_filter_and_sort")
-def odata_filter_and_sort(
-    entity_set: str,
-    filter_by: Optional[str] = None,      # e.g., "CurrencyCode eq 'USD'"
-    sort_by: Optional[str] = None,        # e.g., "GrossAmount desc"
-    top: int = 50,
-    base_url: str = DEFAULT_BASE_URL,
-    metadata: Optional[Dict] = None,
-) -> List[Dict]:
-    """Filter and sort entities with optional criteria."""
-    query_parts = []
-    if filter_by:
-        query_parts.append(f"$filter={filter_by}")
-    if sort_by:
-        query_parts.append(f"$orderby={sort_by}")
-    query_parts.append(f"$top={top}")
-    query_str = "&".join(query_parts)
-
-    url = f"{base_url.rstrip('/')}/{entity_set}?{query_str}"
-    headers = {"Accept": "application/json"}
-    resp = make_odata_request(url, headers=headers, base_url=base_url)
-    if not resp.ok:
-        raise Exception(f"Filter/sort failed: {resp.text}")
-    return resp.json().get("d", {}).get("results", [])
-
 
 @mcp.tool(name="odata_count")
 def count_entities(entity_set: str, filter_expr: str = "", base_url: str = DEFAULT_BASE_URL) -> str:
-    """
-    Returns the count of entities in the specified entity set, optionally filtered by filter_expr.
-    """
     params = {}
     if filter_expr:
         params["$filter"] = filter_expr
@@ -227,9 +135,6 @@ def count_entities(entity_set: str, filter_expr: str = "", base_url: str = DEFAU
 
 
 def get_select_fields_excluding_binary(entity_set: str, base_url: str) -> Optional[str]:
-    """
-    Returns a comma-separated list of fields for the entity set, excluding binary fields.
-    """
     url = f"{base_url.rstrip('/')}/$metadata"
     resp = make_odata_request(url, base_url=base_url)
     if not resp.ok:
@@ -244,9 +149,6 @@ def get_select_fields_excluding_binary(entity_set: str, base_url: str) -> Option
 
 @mcp.tool(name="odata_metadata")
 def get_metadata(base_url: str = DEFAULT_BASE_URL) -> str:
-    """
-    Fetches and returns the OData $metadata XML as a string.
-    """
     url = f"{base_url.rstrip('/')}/$metadata"
     headers = {"Accept": "application/xml"}
     resp = make_odata_request(url, headers=headers, base_url=base_url)
@@ -254,9 +156,6 @@ def get_metadata(base_url: str = DEFAULT_BASE_URL) -> str:
 
 @mcp.tool(name="odata_top_values")
 def top_values(entity_set: str, field: str, top: int = 5, base_url: str = DEFAULT_BASE_URL) -> str:
-    """
-    Returns the top unique values for a given field in the specified entity set.
-    """
     url = f"{base_url.rstrip('/')}/{entity_set}?$select={field}&$top=100&$format=json"
     resp = make_odata_request(url, base_url=base_url)
     if not resp.ok:
@@ -355,9 +254,6 @@ def list_entity_sets(base_url: str = DEFAULT_BASE_URL) -> Union[str, Dict[str, U
         return f"❌ Failed to parse metadata: {e}"
 
 def extract_auto_expand_clause(entity_set: str, base_url: str = DEFAULT_BASE_URL) -> str:
-    """
-    Extracts the $expand clause for all navigation properties of the given entity set.
-    """
     metadata = get_metadata(base_url)
     tree = ET.fromstring(metadata)
     ns = {"edmx": "http://schemas.microsoft.com/ado/2007/06/edmx",
@@ -378,9 +274,6 @@ def extract_auto_expand_clause(entity_set: str, base_url: str = DEFAULT_BASE_URL
 
 @mcp.tool(name="odata_expand_or_walk")
 def odata_expand_or_walk(entity_set: str, key: Optional[str] = None, base_url: str = DEFAULT_BASE_URL) -> str:
-    """
-    Fetches an entity (optionally by key) and expands all navigation properties using $expand.
-    """
     expand_clause = extract_auto_expand_clause(entity_set, base_url)
     key_part = f"('{key}')" if key else ""
     url = f"{base_url.rstrip('/')}/{entity_set}{key_part}{expand_clause}&$format=json"
@@ -395,231 +288,70 @@ def odata_expand_or_walk(entity_set: str, key: Optional[str] = None, base_url: s
 
 
 
-# @mcp.tool(name="apply_groupby_aggregate")
-# def apply_groupby_aggregate(entity_set: str, groupby: str, aggregate: str, base_url: str = DEFAULT_BASE_URL) -> str:
-#     """
-#     Applies a groupby and aggregate operation to the specified entity set using OData $apply.
-#     If $apply is not supported, performs manual aggregation as a fallback.
-#     Aggregate string can be in formats like:
-#       - sum(GrossAmount)
-#       - sum(GrossAmount) as TotalRevenue
-#       - GrossAmount with sum as TotalRevenue
-#     """
-#     apply_query = f"?$apply=groupby(({groupby}), aggregate({aggregate}))"
-#     url = f"{base_url.rstrip('/')}/{entity_set}{apply_query}"
-#     resp = make_odata_request(url, base_url=base_url)
+from collections import defaultdict
+import re
 
-#     if resp.ok:
-#         try:
-#             return truncate_response(resp.json())
-#         except Exception as e:
-#             return f"❌ Failed to parse JSON response: {str(e)}"
-
-#     # fallback if $apply not supported
-#     fallback_url = f"{base_url.rstrip('/')}/{entity_set}?$format=json"
-#     resp = make_odata_request(fallback_url, base_url=base_url)
-#     if not resp.ok:
-#         return f"❌ Failed to fetch fallback: {resp.status_code} - {resp.text}"
-
-#     try:
-#         data = resp.json().get("d", {}).get("results", [])
-#         if not data:
-#             return "No data to aggregate."
-
-#         # Accept any of these:
-#         # - sum(GrossAmount)
-#         # - sum(GrossAmount) as TotalRevenue
-#         # - GrossAmount with sum as TotalRevenue
-
-#         field, func, alias = None, None, None
-
-#         match = re.match(r'(\w+)\s+with\s+(\w+)\s+as\s+(\w+)', aggregate.strip(), re.IGNORECASE)
-#         if match:
-#             field, func, alias = match.groups()
-#         else:
-#             match = re.match(r'(\w+)\((\w+)\)\s+as\s+(\w+)', aggregate.strip(), re.IGNORECASE)
-#             if match:
-#                 func, field, alias = match.groups()
-#             else:
-#                 match = re.match(r'(\w+)\((\w+)\)', aggregate.strip(), re.IGNORECASE)
-#                 if match:
-#                     func, field = match.groups()
-#                     alias = f"{func}_{field}"  # fallback alias
-#                 else:
-#                     return f"❌ Invalid aggregate format: {aggregate}"
-
-#         func = func.lower()
-
-#         group_map = defaultdict(list)
-#         for row in data:
-#             group_key = row.get(groupby)
-#             value = row.get(field)
-#             if group_key is not None and isinstance(value, (int, float)):
-#                 group_map[group_key].append(value)
-
-#         result = []
-#         for k, vals in group_map.items():
-#             try:
-#                 if func == "sum":
-#                     agg_val = sum(vals)
-#                 elif func == "average":
-#                     agg_val = sum(vals) / len(vals)
-#                 elif func == "count":
-#                     agg_val = len(vals)
-#                 else:
-#                     return f"❌ Unsupported aggregation function: {func}"
-#                 result.append({groupby: k, alias: agg_val})
-#             except Exception:
-#                 result.append({groupby: k, alias: "❌ Calculation error"})
-
-#         return truncate_response({"results": result})
-#     except Exception as e:
-#         return f"❌ Manual aggregation failed: {str(e)}"
-
-@mcp.tool
-def odata_aggregate_related(
-    base_url: str,
-    entity_set: str,
-    key: str,
-    navigation_property: str,
-    aggregation: str = "count",
-    aggregation_field: Optional[str] = None,
-    filter: Optional[str] = None,
-    headers: Optional[Dict[str, str]] = None,
-) -> Union[int, float]:
-    """
-    Aggregates related entities using navigation. Supports count, sum, average with optional filter.
-
-    Example: Count sales orders of a business partner where status != 'C'
-    """
-    import re
-
-    key_encoded = quote(key)
-    nav_path = f"{entity_set}('{key_encoded}')/{navigation_property}"
+@mcp.tool(name="apply_groupby_aggregate")
+def apply_groupby_aggregate(entity_set: str, groupby: str, aggregate: str, base_url: str = DEFAULT_BASE_URL) -> str:
+    apply_query = f"?$apply=groupby(({groupby}), aggregate({aggregate}))"
+    url = f"{base_url.rstrip('/')}/{entity_set}{apply_query}"
+    resp = make_odata_request(url, base_url=base_url)
     
-    # Build query
-    if aggregation.lower() == "count":
-        url = f"{base_url}/{nav_path}/$count"
-        if filter:
-            url += f"?$filter={quote(filter)}"
-        resp = make_odata_request(url, headers=headers, base_url=base_url)
-        return int(resp.text)
+    if resp.ok:
+        try:
+            return truncate_response(resp.json())
+        except Exception as e:
+            return f"❌ Failed to parse JSON response: {str(e)}"
 
-    elif aggregation.lower() in {"sum", "average"}:
-        # Validate field
-        if not aggregation_field:
-            raise ValueError("aggregation_field is required for sum or average")
+    # fallback to manual aggregation if $apply is not supported
+    fallback_url = f"{base_url.rstrip('/')}/{entity_set}?$format=json"
+    resp = make_odata_request(fallback_url, base_url=base_url)
+    if not resp.ok:
+        return f"❌ Failed to fetch fallback: {resp.status_code} - {resp.text}"
+    
+    try:
+        data = resp.json().get("d", {}).get("results", [])
+        if not data:
+            return "No data to aggregate."
 
-        agg_func = "sum" if aggregation.lower() == "sum" else "average"
-        # Build $apply query
-        apply_parts = []
-        if filter:
-            apply_parts.append(f"filter({filter})")
-        apply_parts.append(f"groupby((),aggregate({aggregation_field} with {agg_func} as agg))")
-        apply_clause = "/".join(apply_parts)
+        # ✅ Parse "GrossAmount with sum as TotalSales"
+        match = re.match(r'(\w+)\s+with\s+(\w+)\s+as\s+(\w+)', aggregate.strip(), re.IGNORECASE)
+        if not match:
+            return f"❌ Invalid aggregate format: {aggregate}"
         
-        url = f"{base_url}/{nav_path}?$apply={quote(apply_clause)}"
-        resp = make_odata_request(url, headers=headers, base_url=base_url)
-        data = resp.json()
-        results = data.get("d", {}).get("results") or data.get("value")
-        if results and isinstance(results, list) and "agg" in results[0]:
-            return results[0]["agg"]
-        return 0.0
+        field, func, alias = match.groups()
+        func = func.lower()
 
-    else:
-        raise ValueError("Unsupported aggregation: use count, sum, or average")
+        group_map = defaultdict(list)
+        for row in data:
+            group_key = row.get(groupby)
+            value = row.get(field)
+            if group_key is not None and isinstance(value, (int, float)):
+                group_map[group_key].append(value)
 
+        result = []
+        for k, vals in group_map.items():
+            try:
+                if func == "sum":
+                    agg_val = sum(vals)
+                elif func == "average":
+                    agg_val = sum(vals) / len(vals)
+                elif func == "count":
+                    agg_val = len(vals)
+                else:
+                    return f"❌ Unsupported aggregation function: {func}"
+                result.append({groupby: k, alias: agg_val})
+            except Exception:
+                result.append({groupby: k, alias: "❌ Calculation error"})
 
-
-# @mcp.tool(name="apply_groupby_aggregate")
-# def apply_groupby_aggregate(entity_set: str, groupby: str, aggregate: str, base_url: str = DEFAULT_BASE_URL) -> str:
-#     apply_query = f"?$apply=groupby(({groupby}), aggregate({aggregate}))"
-#     url = f"{base_url.rstrip('/')}/{entity_set}{apply_query}"
-#     resp = make_odata_request(url, base_url=base_url)
-
-#     if resp.ok:
-#         try:
-#             return truncate_response(resp.json())
-#         except Exception as e:
-#             return f"❌ Failed to parse JSON response: {str(e)}"
-
-#     # fallback if $apply not supported
-#     headers = {"Accept": "application/json"}
-#     data = []
-#     next_url = f"{base_url.rstrip('/')}/{entity_set}?$format=json"
-#     while next_url:
-#         resp = make_odata_request(next_url, headers=headers, base_url=base_url)
-#         if not resp.ok:
-#             return f"❌ Failed to fetch fallback: {resp.status_code} - {resp.text}"
-
-#         json_data = resp.json()
-#         if "d" in json_data:
-#             results = json_data["d"].get("results", [])
-#             next_url = json_data["d"].get("__next")
-#         elif "value" in json_data:
-#             results = json_data.get("value", [])
-#             next_url = json_data.get("@odata.nextLink")
-#         else:
-#             return "❌ Unexpected response format"
-
-#         data.extend(results)
-
-#     if not data:
-#         return "No data to aggregate."
-
-#     # Parse aggregate string
-#     field, func, alias = None, None, None
-#     match = re.match(r'(\w+)\s+with\s+(\w+)\s+as\s+(\w+)', aggregate.strip(), re.IGNORECASE)
-#     if match:
-#         field, func, alias = match.groups()
-#     else:
-#         match = re.match(r'(\w+)\((\w+)\)\s+as\s+(\w+)', aggregate.strip(), re.IGNORECASE)
-#         if match:
-#             func, field, alias = match.groups()
-#         else:
-#             match = re.match(r'(\w+)\((\w+)\)', aggregate.strip(), re.IGNORECASE)
-#             if match:
-#                 func, field = match.groups()
-#                 alias = f"{func}_{field}"
-#             else:
-#                 return f"❌ Invalid aggregate format: {aggregate}"
-
-#     func = func.lower()
-
-#     from collections import defaultdict
-#     group_map = defaultdict(list)
-#     for row in data:
-#         group_key = row.get(groupby)
-#         value = row.get(field)
-#         if group_key is not None and isinstance(value, (int, float)):
-#             group_map[group_key].append(value)
-
-#     result = []
-#     for k, vals in group_map.items():
-#         try:
-#             if func == "sum":
-#                 agg_val = sum(vals)
-#             elif func == "average":
-#                 agg_val = sum(vals) / len(vals)
-#             elif func == "count":
-#                 agg_val = len(vals)
-#             else:
-#                 return f"❌ Unsupported aggregation function: {func}"
-#             result.append({groupby: k, alias: agg_val})
-#         except Exception:
-#             result.append({groupby: k, alias: "❌ Calculation error"})
-
-#     return truncate_response({"results": result})
-
-
+        return truncate_response({"results": result})
+    except Exception as e:
+        return f"❌ Manual aggregation failed: {str(e)}"
 
 
 
 @mcp.tool(name="odata_get_navigation_paths")
 def odata_get_navigation_paths(entity_set: str, base_url: str = DEFAULT_BASE_URL) -> str:
-    """
-    Returns the navigation property paths for the given entity set from the OData metadata.
-    """
     metadata = get_metadata(base_url)
     tree = ET.fromstring(metadata)
     ns = {"edmx": "http://schemas.microsoft.com/ado/2007/06/edmx",

@@ -90,7 +90,7 @@ class MCPOpenAIClient:
 
 
 
-    async def process_query(self, query: str, max_rounds: int = 10, timeout_seconds: int = 300) -> str:
+    async def process_query(self, query: str, max_rounds: int = 20, timeout_seconds: int = 300) -> str:
         tools = await self.get_mcp_tools()
 
         current_turn: List[Dict[str, Any]] = [{"role": "user", "content": query}]
@@ -228,8 +228,9 @@ class MCPOpenAIClient:
 # query = "Retrieve few Business Partners"
 # query = "how many unique products are there"
 # query = "get sales orders of business partner with id '0100000000'"
-# query = "what is the product in sales order item with id '0500000000' and line item 10"
-
+# query = "what is the product in sales order item with id '0500000000' and line item '0000000010'"
+# query =  "How many sales orders are there for business partner with id '0100000000'?"
+# query = How many sales orders are there for business partner with id '0100000000' with Lifecycle Status not as  Closed
 
 async def main():
     client = MCPOpenAIClient()
