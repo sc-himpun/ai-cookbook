@@ -2,6 +2,21 @@
 
 This project demonstrates how to run an MCP (Model Control Protocol) server using Docker. The server provides a simple calculator tool that can be accessed by a client.
 
+```mermaid
+---
+config:
+  layout: fixed
+  theme: neo
+---
+flowchart TD
+    A["Auriga UI"] -- query --> B["Auriga Backend (MCP Client)"]
+    B -- tool call --> C["MCP Server"]
+    C -- API call --> D("Gmail / Google Drive / S3 / YouTrack / OData / GitHub etc.")
+    D -- API response --> C
+    C -- tool response --> B
+    B -- final response --> A
+```
+
 ## Prerequisites
 
 - Docker installed on your system
@@ -13,6 +28,8 @@ This project demonstrates how to run an MCP (Model Control Protocol) server usin
 - `client.py`: A client that connects to the server and calls the calculator tool
 - `Dockerfile`: Instructions for building the Docker image
 - `requirements.txt`: Python dependencies for the project
+
+
 
 ## Running with Docker
 

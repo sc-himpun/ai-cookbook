@@ -44,8 +44,7 @@ class MCPOpenAIClient:
             "youtrack": "http://localhost:8053/sse",
             "slack": "http://localhost:8054/sse",
             "zoom": "http://localhost:8055/sse",
-            # # "azure": "http://192.168.29.53:5008/sse",
-            "azure": "http://localhost:5008/sse",
+            # "azure": "http://localhost:5008/sse",
             # "onedrive": "http://localhost:8056/sse",
             # "onedrive-business_sharepoint": "http://localhost:8057/sse",
         }

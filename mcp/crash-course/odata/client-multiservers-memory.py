@@ -41,7 +41,7 @@ class MCPOpenAIClient:
             # "s3": "http://localhost:8050/sse",
             # "gdrive": "http://localhost:8051/sse",
             # "github": "http://localhost:8052/sse",
-            # "youtrack": "http://localhost:8053/sse",
+            "youtrack": "http://localhost:8053/sse",
             # "slack": "http://localhost:8054/sse",
             # "zoom": "http://localhost:8055/sse",
             # # "azure": "http://192.168.29.53:5008/sse",
@@ -228,7 +228,7 @@ class MCPOpenAIClient:
 # query = "Retrieve few Business Partners"
 # query = "how many unique products are there"
 # query = "get sales orders of business partner with id '0100000000'"
-# query = "what is the product in sales order item with id '0500000000' and line item '0000000010'"
+# query = "what is the product in sales order item with SalesOrderID  '0500000000' and ItemPosition '0000000010'"
 # query =  "How many sales orders are there for business partner with id '0100000000'?"
 # query = How many sales orders are there for business partner with id '0100000000' with Lifecycle Status not as  Closed
 
