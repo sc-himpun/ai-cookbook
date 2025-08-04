@@ -62,5 +62,125 @@ def fetch_file(key: str, user_query: str = "") -> str:
    
     return body
 
+
+@mcp.tool(name="s3_get_file_schema")
+def s3_get_file_schema(key: str) -> str:
+    """
+    Efficiently infers schema from a CSV (by reading header line directly),
+    JSON (via S3 Select sample), or Parquet (via S3 Select sample).
+    """
+    import csv
+
+    if key.endswith(".csv"):
+        try:
+            # Read only first 1KB to get the header line
+            response = s3.get_object(Bucket=BUCKET, Key=key, Range="bytes=0-1024")
+            content = response["Body"].read().decode("utf-8", errors="ignore")
+            header_line = content.splitlines()[0]
+            reader = csv.reader([header_line])
+            headers = next(reader)
+            return json.dumps([{"column": col.strip()} for col in headers])
+        except Exception as e:
+            return f"CSV schema inference failed: {str(e)}"
+
+    elif key.endswith(".json"):
+        try:
+            input_serialization = {
+                "JSON": {"Type": "DOCUMENT"},
+                "CompressionType": "NONE"
+            }
+            output_serialization = {"JSON": {}}
+            response = s3.select_object_content(
+                Bucket=BUCKET,
+                Key=key,
+                ExpressionType="SQL",
+                Expression="SELECT * FROM S3Object LIMIT 1",
+                InputSerialization=input_serialization,
+                OutputSerialization=output_serialization,
+            )
+            raw = ""
+            for event in response["Payload"]:
+                if "Records" in event:
+                    raw += event["Records"]["Payload"].decode("utf-8", errors="ignore")
+            record = json.loads(raw.strip().splitlines()[0])
+            return json.dumps([{"column": k, "type": type(v).__name__} for k, v in record.items()], indent=2)
+        except Exception as e:
+            return f"JSON schema inference failed: {str(e)}"
+
+    elif key.endswith(".parquet"):
+        try:
+            input_serialization = {
+                "Parquet": {}
+            }
+            output_serialization = {"JSON": {}}
+            response = s3.select_object_content(
+                Bucket=BUCKET,
+                Key=key,
+                ExpressionType="SQL",
+                Expression="SELECT * FROM S3Object LIMIT 1",
+                InputSerialization=input_serialization,
+                OutputSerialization=output_serialization,
+            )
+            raw = ""
+            for event in response["Payload"]:
+                if "Records" in event:
+                    raw += event["Records"]["Payload"].decode("utf-8", errors="ignore")
+            record = json.loads(raw.strip().splitlines()[0])
+            return json.dumps([{"column": k, "type": type(v).__name__} for k, v in record.items()], indent=2)
+        except Exception as e:
+            return f"Parquet schema inference failed: {str(e)}"
+
+    else:
+        return f"Unsupported file format for key: {key}"
+
+
+
+@mcp.tool(name="s3_select_query")
+def s3_select_query(key: str, query: str = "SELECT * FROM S3Object LIMIT 5") -> str:
+    """
+    Query CSV, JSON, or Parquet files on S3 using S3 Select.
+    Only supports structured formats: .csv, .json, .parquet
+    """
+    # Determine format based on file extension
+    if key.endswith(".csv"):
+        input_serialization = {
+            "CSV": {"FileHeaderInfo": "USE"},
+            "CompressionType": "NONE"
+        }
+        output_serialization = {"CSV": {}}
+    elif key.endswith(".json"):
+        input_serialization = {
+            "JSON": {"Type": "DOCUMENT"},
+            "CompressionType": "NONE"
+        }
+        output_serialization = {"JSON": {}}
+    elif key.endswith(".parquet"):
+        input_serialization = {
+            "Parquet": {}
+        }
+        output_serialization = {"JSON": {}}
+    else:
+        return f"Unsupported file format for key: {key}"
+
+    try:
+        response = s3.select_object_content(
+            Bucket=BUCKET,
+            Key=key,
+            ExpressionType="SQL",
+            Expression=query,
+            InputSerialization=input_serialization,
+            OutputSerialization=output_serialization,
+        )
+
+        result = ""
+        for event in response["Payload"]:
+            if "Records" in event:
+                result += event["Records"]["Payload"].decode("utf-8", errors="ignore")
+
+        return result.strip() or "No results found."
+
+    except Exception as e:
+        return f"Query failed: {str(e)}"
+
 if __name__ == "__main__":
     mcp.run(transport="sse")
