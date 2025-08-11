@@ -19,13 +19,13 @@ This project demonstrates how to run an MCP (Model Control Protocol) server usin
 ### Step 1: Build the Docker image
 
 ```bash
-docker build -t mcp-server-odata .
+docker build -t mcp-server-asana .
 ```
 
 ### Step 2: Run the Docker container
 
 ```bash
-docker run  --env-file .env --network dbnetwork  --name mcp-server-odata -p 8016:8016  -d mcp-server-odata
+docker run --env-file .env --network dbnetwork  --name mcp-server-asana -p 8011:8011  -d mcp-server-asana
 ```
 
 This will start the MCP server inside a Docker container and expose it on port 8050.

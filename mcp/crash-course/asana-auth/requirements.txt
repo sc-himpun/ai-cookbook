@@ -1,0 +1,9 @@
+mcp[cli]
+fastmcp
+openai
+langchain
+fastmcp-http
+starlette
+requests
+python-dotenv
+asana

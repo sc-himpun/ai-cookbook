@@ -16,7 +16,7 @@ RUN uv pip install -r requirements.txt
 COPY server.py .
 
 # Expose the port the server runs on
-EXPOSE 8016
+EXPOSE 8011
 
 # Command to run the server
 CMD ["uv", "run", "server.py"] 
