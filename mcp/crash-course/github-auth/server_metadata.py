@@ -20,7 +20,8 @@ SCOPES = [
     "read:user",
     "user:email",
     "write:discussion",
-    "workflow"
+    "workflow",
+    "read:org"
 ]
 REDIRECT_URI = f"http://localhost:{PORT}/oauth2callback"
 AUTH_URL = "https://github.com/login/oauth/authorize"
@@ -228,10 +229,21 @@ def github_search_file_contents(metadata: Dict[str, Any], repo_name: str, keywor
 
 @mcp.tool(name="github_list_user_repositories")
 def github_list_user_repositories(metadata: Dict[str, Any]) -> str:
-    """List all repositories accessible by the authenticated user."""
+    """List all repositories accessible by the authenticated user (personal + org)."""
     gh = get_github_client(metadata)
-    repos = gh.get_user().get_repos()
-    return "\n".join([f"- {repo.full_name}" for repo in repos]) or "No repositories found."
+    all_repos = []
+
+    # Personal and collaborated repos
+    for repo in gh.get_user().get_repos(visibility="all"):
+        all_repos.append(f"- {repo.full_name}")
+
+    # Organization repos
+    for org in gh.get_user().get_orgs():
+        for repo in org.get_repos(visibility="all"):
+            all_repos.append(f"- {repo.full_name}")
+
+    return "\n".join(sorted(set(all_repos))) or "No repositories found."
+
 
 @mcp.tool(name="github_list_open_issues")
 def github_list_open_issues(metadata: Dict[str, Any], repo_name: str) -> str:

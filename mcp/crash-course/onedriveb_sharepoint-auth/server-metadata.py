@@ -14,7 +14,10 @@ from azure.core.credentials import TokenCredential, AccessToken
 import requests
 from azure.identity.aio import AuthorizationCodeCredential
 from msgraph import GraphServiceClient
-
+import aiohttp
+from io import BytesIO
+from docx import Document
+import fitz  # PyMuPDF
 import nest_asyncio
 nest_asyncio.apply()
 
@@ -289,6 +292,45 @@ def search_folder_for_content(metadata: Dict, drive_id: str, folder_id: str, key
 
     return asyncio.run(inner())
 
+
+@mcp.tool(name="onedrive_get_file_content")
+def get_file_content(metadata: Dict, drive_id: str, file_id: str) -> str:
+    """Download and return the plain text content of a OneDrive file (.txt, .docx, .pdf)."""
+
+    async def fetch_and_extract_text(download_url: str, file_name: str) -> Optional[str]:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(download_url) as resp:
+                if resp.status != 200:
+                    return None
+                file_bytes = await resp.read()
+
+        if file_name.endswith(".txt"):
+            return file_bytes.decode("utf-8", errors="ignore")
+        elif file_name.endswith(".docx"):
+            return "\n".join(p.text for p in Document(BytesIO(file_bytes)).paragraphs)
+        elif file_name.endswith(".pdf"):
+            with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+                return "\n".join(page.get_text() for page in doc)
+        else:
+            return None  # unsupported format
+
+    async def inner():
+        client = await get_graph_client(metadata)
+        if not client:
+            return "❌ Not authorized."
+
+        file = await client.drives.by_drive_id(drive_id).items.by_drive_item_id(file_id).get()
+        download_url = file.additional_data.get("@microsoft.graph.downloadUrl")
+        if not download_url:
+            return "❌ Download URL not found."
+
+        content = await fetch_and_extract_text(download_url, file.name)
+        if not content:
+            return "❌ Could not extract content."
+
+        return content
+
+    return asyncio.run(inner())
 
 
 

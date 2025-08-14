@@ -3,15 +3,21 @@ from dotenv import load_dotenv
 import os
 import boto3
 import json
-from typing import Dict, Tuple
-import docx
+from typing import Dict, Any, Tuple, Optional
 from docx import Document
 import fitz  # PyMuPDF
 import io
-import json
-
 
 load_dotenv()
+
+
+# USE_MINIO = os.getenv("USE_MINIO", "True").strip().lower() == "true"
+# BUCKET = os.getenv("S3_BUCKET", "bucket")
+
+# AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "root")
+# AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "password")
+# S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "http://minio:9000")
+# AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 """
 Metadata for AWS s3 -
@@ -33,6 +39,7 @@ Metadata for MinIO -
 
 
 """
+
 
 def get_s3_client_and_bucket(metadata: Dict) -> Tuple[boto3.client, str]:
     """
@@ -79,192 +86,84 @@ def get_s3_client_and_bucket(metadata: Dict) -> Tuple[boto3.client, str]:
 mcp = FastMCP(name="S3Toolkit", host="0.0.0.0", port=8050)
 
 
-def extract_text_from_file(key: str, raw_bytes: bytes, stream: bool = False, max_chars: int = None) -> str:
+def extract_text_from_file(key: str, raw_bytes: bytes) -> str:
     """
     Extracts text based on file type.
-    - PDF: PyMuPDF (streams page-by-page if stream=True)
-    - DOCX: python-docx (streams paragraph-by-paragraph if stream=True)
+    - PDF: PyMuPDF
+    - DOCX: python-docx
     - Others: UTF-8 decode
-    - If max_chars is set, stops after reaching the limit.
     """
-    extracted_text_parts = []
-    total_chars = 0
-
-    def maybe_add_text(chunk):
-        nonlocal total_chars
-        if not chunk:
-            return False
-        extracted_text_parts.append(chunk)
-        total_chars += len(chunk)
-        if max_chars and total_chars >= max_chars:
-            return True  # stop
-        return False
-
     if key.lower().endswith(".pdf"):
         try:
             pdf_doc = fitz.open(stream=raw_bytes, filetype="pdf")
-            if stream:
-                for page in pdf_doc:
-                    if maybe_add_text(page.get_text()):
-                        break
-            else:
-                return "\n".join(page.get_text() for page in pdf_doc).strip()
-            pdf_doc.close()
+            return "\n".join(page.get_text() for page in pdf_doc).strip()
         except Exception as e:
             return f"PDF extraction failed: {str(e)}"
 
     elif key.lower().endswith(".docx"):
         try:
             doc = Document(io.BytesIO(raw_bytes))
-            if stream:
-                for para in doc.paragraphs:
-                    if maybe_add_text(para.text):
-                        break
-            else:
-                return "\n".join(para.text for para in doc.paragraphs).strip()
+            return "\n".join(para.text for para in doc.paragraphs).strip()
         except Exception as e:
             return f"DOCX extraction failed: {str(e)}"
 
     else:
         try:
-            text = raw_bytes.decode("utf-8", errors="ignore")
-            if max_chars:
-                return text[:max_chars]
-            return text
+            return raw_bytes.decode("utf-8", errors="ignore")
         except Exception as e:
             return f"Text decode failed: {str(e)}"
 
-    return "\n".join(extracted_text_parts).strip()
 
 
+# @mcp.tool(name="s3_search_files")
+# def search_files(metadata: dict, keyword: str, search_type: str = "both") -> list:
+#     """Used for performing search in filenames and file's content on s3 bucket"""
+#     s3, bucket = get_s3_client_and_bucket(metadata)
+#     results = []
+#     objects = s3.list_objects_v2(Bucket=bucket).get("Contents", [])
+#     for obj in objects:
+#         key = obj["Key"]
+#         match = False
 
-@mcp.tool(name="s3_search_file_content")
-def search_file_content(metadata: dict, filename: str, keyword: str,
-                        max_preview_chars: int = 5000) -> str:
-    """
-    Search within the content of a specific file in S3.
-    - Streams PDFs page-by-page to reduce memory usage.
-    - Supports text-based formats.
-    - Returns matching chunk/page indexes for targeted retrieval.
-    """
-    s3, bucket = get_s3_client_and_bucket(metadata)
-    results = []
-    match_found = False
-    matching_chunks = []
-    total_chunks = 0
+#         if search_type in ["filename", "both"] and keyword.lower() in key.lower():
+#             match = True
 
-    # Ensure file exists
-    try:
-        s3.head_object(Bucket=bucket, Key=filename)
-    except Exception:
-        return json.dumps({"error": f"File '{filename}' not found in S3 bucket."})
-
-    # Content search
-    if filename.lower().endswith(".pdf"):
-        raw_bytes = s3.get_object(Bucket=bucket, Key=filename)["Body"].read()
-        pdf_document = fitz.open(stream=raw_bytes, filetype="pdf")
-        total_chunks = pdf_document.page_count
-        for idx in range(total_chunks):
-            page_text = pdf_document[idx].get_text()
-            if keyword.lower() in page_text.lower():
-                match_found = True
-                matching_chunks.append(idx)
-        pdf_document.close()
-
-    else:
-        raw_bytes = s3.get_object(Bucket=bucket, Key=filename)["Body"].read()
-        text = extract_text_from_file(filename, raw_bytes)
-
-        if len(text) > max_preview_chars:
-            chunks = chunk_text(text, max_chunk_size=max_preview_chars)
-            total_chunks = len(chunks)
-            for idx, chunk in enumerate(chunks):
-                if keyword.lower() in chunk.lower():
-                    match_found = True
-                    matching_chunks.append(idx)
-        else:
-            total_chunks = 1
-            if keyword.lower() in text.lower():
-                match_found = True
-                matching_chunks.append(0)
-
-    if match_found:
-        results.append({
-            "key": filename,
-            "matches_in_chunks": matching_chunks,
-            "total_chunks": total_chunks
-        })
-
-    return json.dumps(results)
+#         if not match and search_type in ["content", "both"]:
+#             # body = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8", errors="ignore")
+#             # if keyword.lower() in body.lower():
+#             #     match = True
+#             raw_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+#             file_text = extract_text_from_file(key, raw_bytes)
+#             if keyword.lower() in file_text.lower():
+#                 match = True
 
 
+#         if match:
+#             results.append(key)
+#     return json.dumps(results)
 
-@mcp.tool(name="s3_list_files")
-def list_files_in_s3(metadata: dict, prefix: str = "", max_keys: int = 100, search_substring: bool = True) -> str:
-    """
-    List files in the configured S3 bucket.
-    - Uses metadata for AWS/S3 configuration.
-    - Returns file key, size (bytes), and last modified date.
-    - If search_substring=True, will search for `prefix` anywhere in the key (not just start).
-    """
-    s3, bucket = get_s3_client_and_bucket(metadata)
-    results = []
-
-    try:
-        paginator = s3.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=bucket):
-            for obj in page.get("Contents", []):
-                key = obj["Key"]
-                if search_substring:
-                    if prefix.lower() not in key.lower():
-                        continue
-                else:
-                    if not key.startswith(prefix):
-                        continue
-
-                results.append({
-                    "key": key,
-                    "size_bytes": obj["Size"],
-                    "last_modified": obj["LastModified"].isoformat()
-                })
-                if len(results) >= max_keys:
-                    break
-            if len(results) >= max_keys:
-                break
-    except Exception as e:
-        return json.dumps({"error": str(e)})
-
-    return json.dumps(results)
-
-
+import json
+import fitz  # PyMuPDF
+from io import BytesIO
 
 @mcp.tool(name="s3_search_files")
 def search_files(metadata: dict, keyword: str, search_type: str = "both",
-                 max_preview_chars: int = 8000) -> str:
+                 max_preview_chars: int = 5000, filename_hint: str = None) -> str:
     """
-    Search filenames and/or file content in S3.
-    - Streams large files and stops early when a match is found.
-    - Processes smaller files first.
-    - Supports all prefixes (subdirectories) using pagination.
+    Search filenames and/or file content on S3.
+    Streams PDFs page-by-page to avoid high memory usage.
+    If filename_hint is provided, only that file is searched.
     """
     s3, bucket = get_s3_client_and_bucket(metadata)
     results = []
-    all_objects = []
 
-    # ✅ Use paginator to get *all* objects across all prefixes
-    paginator = s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=bucket):
-        for obj in page.get("Contents", []):
-            all_objects.append(obj)
+    if filename_hint:
+        objects = [{"Key": filename_hint}]
+    else:
+        objects = s3.list_objects_v2(Bucket=bucket).get("Contents", [])
 
-    
-    # Sort by size so smaller files are searched first
-    all_objects.sort(key=lambda x: x["Size"])
-    print(all_objects)
-
-    for obj in all_objects:
+    for obj in objects:
         key = obj["Key"]
-        file_size = obj["Size"]
         match_found = False
         matching_chunks = []
         total_chunks = 0
@@ -274,72 +173,45 @@ def search_files(metadata: dict, keyword: str, search_type: str = "both",
             match_found = True
 
         # Content match
-        if not match_found and search_type in ["content", "both"]:
+        if search_type in ["content", "both"]:
             if key.lower().endswith(".pdf"):
                 raw_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
                 pdf_document = fitz.open(stream=raw_bytes, filetype="pdf")
                 total_chunks = pdf_document.page_count
                 for idx in range(total_chunks):
-                    if keyword.lower() in pdf_document[idx].get_text().lower():
+                    page_text = pdf_document[idx].get_text()
+                    if keyword.lower() in page_text.lower():
                         match_found = True
                         matching_chunks.append(idx)
-                        break
                 pdf_document.close()
 
-            elif key.lower().endswith(".docx"):
-                raw_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
-                doc = docx.Document(io.BytesIO(raw_bytes))
-                total_chunks = len(doc.paragraphs)
-                for idx, para in enumerate(doc.paragraphs):
-                    if keyword.lower() in para.text.lower():
-                        match_found = True
-                        matching_chunks.append(idx)
-                        break
-
             else:
-                # Stream and chunk text files
-                obj_stream = s3.get_object(Bucket=bucket, Key=key)["Body"]
-                buffer = ""
-                chunk_index = 0
-                match_found = False
-                matching_chunks = []
+                raw_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+                text = extract_text_from_file(key, raw_bytes)
 
-                for raw_line in obj_stream.iter_lines():
-                    try:
-                        line = raw_line.decode("utf-8", errors="ignore")
-                    except Exception:
-                        line = ""
-                    buffer += line + "\n"
-
-                    if len(buffer) >= max_preview_chars:
-                        if keyword.lower() in buffer.lower():
+                if len(text) > max_preview_chars:
+                    chunks = chunk_text(text, max_chunk_size=max_preview_chars)
+                    total_chunks = len(chunks)
+                    for idx, chunk in enumerate(chunks):
+                        if keyword.lower() in chunk.lower():
                             match_found = True
-                            matching_chunks.append(chunk_index)
-                            break  # stop after first match
-                        buffer = ""
-                        chunk_index += 1
-
-                # Check the last chunk if loop ends without hitting max_preview_chars
-                if not match_found and buffer:
-                    if keyword.lower() in buffer.lower():
+                            matching_chunks.append(idx)
+                else:
+                    total_chunks = 1
+                    if keyword.lower() in text.lower():
                         match_found = True
-                        matching_chunks.append(chunk_index)
-
-                total_chunks = chunk_index + (1 if buffer else 0)
-
-                # body = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8", errors="ignore")
-                # if keyword.lower() in body.lower():
-                #     match_found = True
+                        matching_chunks.append(0)
 
         if match_found:
             results.append({
                 "key": key,
-                "size": file_size,
                 "matches_in_chunks": matching_chunks,
                 "total_chunks": total_chunks
             })
 
     return json.dumps(results)
+
+
 
 
 def chunk_text(text: str, max_chunk_size: int = 3000, overlap: int = 200) -> list:
@@ -359,6 +231,40 @@ def chunk_text(text: str, max_chunk_size: int = 3000, overlap: int = 200) -> lis
         if start < 0:
             start = 0
     return chunks
+
+
+import fitz  # PyMuPDF
+import io
+
+def extract_pdf_chunk(raw_bytes: bytes, chunk_index: int, max_chars: int = 3000, overlap: int = 200):
+    doc = fitz.open(stream=raw_bytes, filetype="pdf")
+
+    chunks = []
+    current_text = ""
+    start_chars = chunk_index * (max_chars - overlap)
+
+    char_count = 0
+    for page in doc:
+        page_text = page.get_text()
+        for char in page_text:
+            if char_count >= start_chars:
+                current_text += char
+                if len(current_text) >= max_chars:
+                    chunks.append(current_text)
+                    return {
+                        "chunk": current_text,
+                        "chunk_index": chunk_index,
+                        "total_chunks": None  # Could be calculated if needed
+                    }
+            char_count += 1
+
+    # If file smaller than expected chunk
+    if current_text:
+        return {
+            "chunk": current_text,
+            "chunk_index": chunk_index,
+            "total_chunks": None
+        }
 
 
 
@@ -419,43 +325,23 @@ def fetch_file_chunked(
             "total_chunks": estimated_chunks
         }
 
-    elif key.lower().endswith(".txt"):
-        obj_stream = s3.get_object(Bucket=bucket, Key=key)["Body"]
-        start_char_index = chunk_index * (max_chunk_size - overlap)
-        current_text = ""
-        char_count = 0
-
-        for raw_line in obj_stream.iter_lines():
-            line = raw_line.decode("utf-8", errors="ignore") + "\n"
-            for char in line:
-                if char_count >= start_char_index:
-                    current_text += char
-                    if len(current_text) >= max_chunk_size:
-                        return {
-                            "chunk": current_text,
-                            "chunk_index": chunk_index,
-                            "total_chunks": None  # unknown without scanning whole file
-                        }
-                char_count += 1
-
-        return {
-            "chunk": current_text,
-            "chunk_index": chunk_index,
-            "total_chunks": None
-        }
-    
-     # DOCX and others - still need full read
-    else:
-        raw_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
-        text = extract_text_from_file(key, raw_bytes)
-        chunks = chunk_text(text, max_chunk_size, overlap)
-        return {
-            "chunk": chunks[chunk_index] if chunk_index < len(chunks) else "",
-            "chunk_index": chunk_index,
-            "total_chunks": len(chunks)
-        }
+    # Non-PDF fallback
+    text = extract_text_from_file(key, raw_bytes)
+    chunks = chunk_text(text, max_chunk_size, overlap)
+    return {
+        "chunk": chunks[chunk_index] if chunk_index < len(chunks) else "",
+        "chunk_index": chunk_index,
+        "total_chunks": len(chunks)
+    }
 
 
+
+# @mcp.tool(name="s3_fetch_file")
+# def fetch_file(metadata: dict, key: str, user_query: str = "") -> str:
+#     """Fetch file from S3; PDFs and DOCX are converted to text."""
+#     s3, bucket = get_s3_client_and_bucket(metadata)
+#     raw_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+#     return extract_text_from_file(key, raw_bytes)
 
 @mcp.tool(name="s3_fetch_file")
 def fetch_file(metadata: dict, key: str, user_query: str = "", max_chars: int = 5000) -> dict:

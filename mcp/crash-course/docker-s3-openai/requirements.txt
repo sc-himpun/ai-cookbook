@@ -5,3 +5,5 @@ openai
 langchain
 fastmcp-http
 langchain-community
+python-docx 
+PyMuPDF
