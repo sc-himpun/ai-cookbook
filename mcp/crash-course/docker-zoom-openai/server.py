@@ -161,6 +161,37 @@ def get_meeting_recordings(meeting_id: str) -> str:
     return r.text if r.ok else f"Error: {r.status_code} {r.text}"
 
 
+# ─── Tool: Reschedule a Meeting ──────────────────────────────────────────────
+@mcp.tool(name="zoom_reschedule_meeting")
+def reschedule_meeting(meeting_id: str, new_start_time: str, new_duration: int) -> str:
+    """Reschedule an existing Zoom meeting by updating its start time and duration.
+    Format for new_start_time: YYYY-MM-DDTHH:MM:SSZ (UTC). Example: 2025-06-20T15:00:00Z
+    """
+    url = f"https://api.zoom.us/v2/meetings/{meeting_id}"
+    headers = get_auth_headers()
+    payload = {
+        "start_time": new_start_time,
+        "duration": new_duration,
+        "timezone": "UTC"
+    }
+    r = requests.patch(url, headers=headers, json=payload)
+    return r.text if r.ok else f"Error: {r.status_code} {r.text}"
+
+
+# ─── Tool: Cancel a Meeting ──────────────────────────────────────────────────
+@mcp.tool(name="zoom_cancel_meeting")
+def cancel_meeting(meeting_id: str) -> str:
+    """Cancel (delete) an existing Zoom meeting by meeting ID."""
+    url = f"https://api.zoom.us/v2/meetings/{meeting_id}"
+    headers = get_auth_headers()
+    r = requests.delete(url, headers=headers)
+    # Zoom returns 204 No Content on success
+    if r.status_code == 204:
+        return json.dumps({"status": "success", "message": f"Meeting {meeting_id} cancelled."})
+    return f"Error: {r.status_code} {r.text}"
+
+
+
 @mcp.tool(name="zoom_list_recent_meetings")
 def list_recent_meetings(user_id: str = "me") -> str:
     """List recent (scheduled, live, or recently ended) meetings for a user."""
