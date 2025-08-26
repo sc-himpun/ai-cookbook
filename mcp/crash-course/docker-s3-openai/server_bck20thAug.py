@@ -34,8 +34,6 @@ Metadata for MinIO -
 
 """
 
-LARGE_FILE_THRESHOLD = 1_000_000  # 1MB
-
 def get_s3_client_and_bucket(metadata: Dict) -> Tuple[boto3.client, str]:
     """
     Returns a boto3 S3 client and target bucket name, using metadata.
@@ -140,72 +138,11 @@ def extract_text_from_file(key: str, raw_bytes: bytes, stream: bool = False, max
 
 
 
-# @mcp.tool(name="s3_search_file_content")
-# def search_file_content(metadata: dict, filename: str, keyword: str,
-#                         max_preview_chars: int = 5000) -> str:
-#     """
-#     Search within the content of a specific file in S3.
-#     - Streams PDFs page-by-page to reduce memory usage.
-#     - Supports text-based formats.
-#     - Returns matching chunk/page indexes for targeted retrieval.
-#     """
-#     s3, bucket = get_s3_client_and_bucket(metadata)
-#     results = []
-#     match_found = False
-#     matching_chunks = []
-#     total_chunks = 0
-
-#     # Ensure file exists
-#     try:
-#         s3.head_object(Bucket=bucket, Key=filename)
-#     except Exception:
-#         return json.dumps({"error": f"File '{filename}' not found in S3 bucket."})
-
-#     # Content search
-#     if filename.lower().endswith(".pdf"):
-#         raw_bytes = s3.get_object(Bucket=bucket, Key=filename)["Body"].read()
-#         pdf_document = fitz.open(stream=raw_bytes, filetype="pdf")
-#         total_chunks = pdf_document.page_count
-#         for idx in range(total_chunks):
-#             page_text = pdf_document[idx].get_text()
-#             if keyword.lower() in page_text.lower():
-#                 match_found = True
-#                 matching_chunks.append(idx)
-#         pdf_document.close()
-
-#     else:
-#         raw_bytes = s3.get_object(Bucket=bucket, Key=filename)["Body"].read()
-#         text = extract_text_from_file(filename, raw_bytes)
-
-#         if len(text) > max_preview_chars:
-#             chunks = chunk_text(text, max_chunk_size=max_preview_chars)
-#             total_chunks = len(chunks)
-#             for idx, chunk in enumerate(chunks):
-#                 if keyword.lower() in chunk.lower():
-#                     match_found = True
-#                     matching_chunks.append(idx)
-#         else:
-#             total_chunks = 1
-#             if keyword.lower() in text.lower():
-#                 match_found = True
-#                 matching_chunks.append(0)
-
-#     if match_found:
-#         results.append({
-#             "key": filename,
-#             "matches_in_chunks": matching_chunks,
-#             "total_chunks": total_chunks
-#         })
-
-#     return json.dumps(results)
-
 @mcp.tool(name="s3_search_file_content")
 def search_file_content(metadata: dict, filename: str, keyword: str,
-                        max_preview_chars: int = 5000,
-                        large_file_threshold: int = LARGE_FILE_THRESHOLD) -> str:
+                        max_preview_chars: int = 5000) -> str:
     """
     Search within the content of a specific file in S3.
-    - For large files, delegate to vector_search.
     - Streams PDFs page-by-page to reduce memory usage.
     - Supports text-based formats.
     - Returns matching chunk/page indexes for targeted retrieval.
@@ -216,23 +153,13 @@ def search_file_content(metadata: dict, filename: str, keyword: str,
     matching_chunks = []
     total_chunks = 0
 
-    # Ensure file exists and check size
+    # Ensure file exists
     try:
-        head = s3.head_object(Bucket=bucket, Key=filename)
+        s3.head_object(Bucket=bucket, Key=filename)
     except Exception:
         return json.dumps({"error": f"File '{filename}' not found in S3 bucket."})
 
-    file_size = head.get("ContentLength", 0)
-
-    # 🚨 Delegate to vector_search if file is too large
-    if file_size > large_file_threshold:
-        return json.dumps({
-                    "delegate": "vector_ingest_s3",
-                    "key": filename,
-                    "reason": f"File size {file_size} exceeds threshold {large_file_threshold}. Use 'vector_ingest_s3' for ingesting the chunks as embeddings and searching."
-                })
-
-    # ✅ Normal content search for smaller files
+    # Content search
     if filename.lower().endswith(".pdf"):
         raw_bytes = s3.get_object(Bucket=bucket, Key=filename)["Body"].read()
         pdf_document = fitz.open(stream=raw_bytes, filetype="pdf")
@@ -269,6 +196,7 @@ def search_file_content(metadata: dict, filename: str, keyword: str,
         })
 
     return json.dumps(results)
+
 
 
 @mcp.tool(name="s3_list_files")
@@ -319,7 +247,6 @@ def search_files(metadata: dict, keyword: str, search_type: str = "both",
     - Processes smaller files first.
     - Supports all prefixes (subdirectories) using pagination.
     """
-
     s3, bucket = get_s3_client_and_bucket(metadata)
     results = []
     all_objects = []
@@ -341,15 +268,7 @@ def search_files(metadata: dict, keyword: str, search_type: str = "both",
         match_found = False
         matching_chunks = []
         total_chunks = 0
-        
-        if file_size > LARGE_FILE_THRESHOLD:
-                # Instead of brute-force scanning, tell LLM to use vector search
-                return json.dumps({
-                    "delegate": "vector_ingest_s3",
-                    "key": key,
-                    "reason": f"File size {file_size} exceeds threshold. Use 'vector_ingest_s3' for ingesting the chunks as embeddings and searching."
-                })
-        
+
         # Filename match
         if search_type in ["filename", "both"] and keyword.lower() in key.lower():
             match_found = True

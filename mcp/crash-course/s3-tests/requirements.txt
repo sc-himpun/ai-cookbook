@@ -1,0 +1,9 @@
+mcp[cli]
+boto3
+fastmcp
+openai
+langchain
+fastmcp-http
+langchain-community
+python-docx 
+PyMuPDF

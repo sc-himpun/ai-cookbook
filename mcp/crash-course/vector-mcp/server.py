@@ -1,0 +1,592 @@
+# vector_mcp_server.py
+from mcp.server.fastmcp import FastMCP
+from typing import Dict, List, Tuple, Iterable, Optional
+import io, hashlib, json, os, tempfile, shutil
+
+# Text extraction
+import fitz                # PyMuPDF
+from docx import Document  # python-docx
+
+# S3
+import boto3
+from botocore.response import StreamingBody
+
+# Google Drive
+from google.oauth2.service_account import Credentials as GServiceAccountCreds
+from googleapiclient.discovery import build as gbuild
+from googleapiclient.http import MediaIoBaseDownload
+
+# LangChain / FAISS
+from langchain_community.vectorstores import FAISS
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+# OpenAI embeddings (>= 1.0 client)
+import openai
+from openai import OpenAI
+openai.api_key = os.environ["OPENAI_API_KEY"]
+print("OpenAI API key set from environment", os.environ.get("OPENAI_API_KEY") is not None)
+# ────────────────────────────────────────────────────────────────────────────
+# MCP setup
+mcp = FastMCP(name="VectorToolkit", host="0.0.0.0", port=8060)
+from langchain_openai import OpenAIEmbeddings  
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+def get_embedding_backend(provider: str = "huggingface", model_name: str = None):
+    """
+    Returns a LangChain-compatible embedding model.
+    provider: "huggingface" | "openai"
+    model_name: override the default model for provider
+    """
+    if provider == "openai":
+        return OpenAIEmbeddings(model=model_name or "text-embedding-3-small")
+    elif provider == "huggingface":
+        return HuggingFaceEmbeddings(
+            model_name=model_name or "intfloat/e5-base-v2",
+            model_kwargs={"device": "cpu"},  # or "cuda" for GPU
+            encode_kwargs={"normalize_embeddings": True}
+        )
+    else:
+        raise ValueError(f"Unsupported embedding provider: {provider}")
+
+
+
+
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "huggingface")
+# EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/e5-base-v2")
+
+embedding = get_embedding_backend(EMBEDDING_PROVIDER, EMBEDDING_MODEL)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Per-session, in-memory state
+session_index: FAISS | None = None
+embedded_hashes: set[str] = set()            # file content hashes already indexed
+file_hash_to_docids: dict[str, List[str]] = {}  # to help removal/reset if needed
+
+def get_index() -> FAISS:
+    global session_index
+    if session_index is None:
+        dummy_text = " "  # ensures FAISS has at least one vector
+        session_index = FAISS.from_texts(
+            [dummy_text],
+            embedding
+        )
+    return session_index
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Helpers: S3 & GDrive clients via metadata
+
+def get_s3_client_and_bucket(metadata: Dict) -> Tuple[boto3.client, str]:
+    """
+    metadata = {"s3" :{
+      "access_key": "...", "secret_key": "...", "bucket": "...",
+      "region": "us-east-1",                           # optional
+      "endpoint_url": "http://localhost:9000"          # optional (MinIO)
+    }}
+    """
+    md = metadata.get("s3") if metadata else None
+    if not md:
+        raise ValueError("Missing S3 metadata")
+    access_key = md.get("access_key")
+    secret_key = md.get("secret_key")
+    bucket     = md.get("bucket")
+    region     = md.get("region", "us-east-1")
+    endpoint   = md.get("endpoint_url")
+
+    if not (access_key and secret_key and bucket):
+        raise ValueError("Missing required S3 credentials or bucket in metadata")
+
+    params = {
+        "aws_access_key_id": access_key,
+        "aws_secret_access_key": secret_key,
+        "region_name": region
+    }
+    if endpoint:
+        params["endpoint_url"] = endpoint
+    return boto3.client("s3", **params), bucket
+
+def get_gdrive_service(metadata: Dict):
+    scopes = ["https://www.googleapis.com/auth/drive.readonly"]
+    if "service_account_info" in metadata:
+        creds = GServiceAccountCreds.from_service_account_info(metadata["service_account_info"], scopes=scopes)
+    elif "service_account_file" in metadata:
+        creds = GServiceAccountCreds.from_service_account_file(metadata["service_account_file"], scopes=scopes)
+    else:
+        raise ValueError("GDrive metadata must include 'service_account_info' or 'service_account_file'")
+    return gbuild("drive", "v3", credentials=creds)
+
+# ────────────────────────────────────────────────────────────────────────────
+# Helpers: hashing, chunking and streaming text extraction
+
+def md5_stream(fobj, chunk_size: int = 1024 * 1024) -> str:
+    """Compute MD5 hash for a file-like object (seeked to start), streaming."""
+    h = hashlib.md5()
+    while True:
+        b = fobj.read(chunk_size)
+        if not b:
+            break
+        h.update(b)
+    return h.hexdigest()
+
+def stream_s3_to_tempfile(body: StreamingBody) -> str:
+    """Write S3 StreamingBody to a temp file (disk-backed) to avoid large memory use."""
+    tmp = tempfile.NamedTemporaryFile(delete=False)
+    try:
+        for chunk in body.iter_chunks(chunk_size=1024 * 1024):
+            if chunk:
+                tmp.write(chunk)
+        tmp.flush()
+        tmp.close()
+        return tmp.name
+    except Exception:
+        try:
+            path = tmp.name
+            tmp.close()
+        finally:
+            raise
+
+def stream_pdf_chunks_from_path(path: str, max_chunk_chars: int, overlap: int) -> Iterable[str]:
+    """Yield text chunks from a PDF on disk; incremental buffer + overlap split."""
+    doc = fitz.open(path)
+    try:
+        buffer = ""
+        splitter = RecursiveCharacterTextSplitter(chunk_size=max_chunk_chars, chunk_overlap=overlap,
+                                                  separators=["\n\n", "\n", " ", ""])
+        for page in doc:
+            page_text = page.get_text("text") or ""
+            if page_text:
+                buffer += page_text
+                # flush when buffer grows
+                if len(buffer) >= max_chunk_chars * 2:
+                    for c in splitter.split_text(buffer):
+                        if c.strip():
+                            yield c
+                    buffer = ""
+        if buffer:
+            for c in splitter.split_text(buffer):
+                if c.strip():
+                    yield c
+    finally:
+        doc.close()
+
+def stream_docx_chunks_from_path(path: str, max_chunk_chars: int, overlap: int) -> Iterable[str]:
+    """Yield chunks by reading paragraphs and splitting incrementally."""
+    doc = Document(path)
+    buffer = ""
+    splitter = RecursiveCharacterTextSplitter(chunk_size=max_chunk_chars, chunk_overlap=overlap,
+                                              separators=["\n\n", "\n", " ", ""])
+    for para in doc.paragraphs:
+        t = para.text or ""
+        if t:
+            buffer += t + "\n"
+            if len(buffer) >= max_chunk_chars * 2:
+                for c in splitter.split_text(buffer):
+                    if c.strip():
+                        yield c
+                buffer = ""
+    if buffer:
+        for c in splitter.split_text(buffer):
+            if c.strip():
+                yield c
+
+def stream_text_chunks_iter_lines(body: StreamingBody, max_chunk_chars: int, overlap: int, encoding: str = "utf-8") -> Iterable[str]:
+    """Yield chunks from a text file on S3 by iterating lines; no full file in memory."""
+    buffer = ""
+    splitter = RecursiveCharacterTextSplitter(chunk_size=max_chunk_chars, chunk_overlap=overlap,
+                                              separators=["\n\n", "\n", " ", ""])
+    for raw_line in body.iter_lines():
+        try:
+            line = raw_line.decode(encoding, errors="ignore")
+        except Exception:
+            line = ""
+        buffer += line + "\n"
+        if len(buffer) >= max_chunk_chars * 2:
+            for c in splitter.split_text(buffer):
+                if c.strip():
+                    yield c
+            buffer = ""
+    if buffer:
+        for c in splitter.split_text(buffer):
+            if c.strip():
+                yield c
+
+def guess_mime_from_key(key: str) -> str:
+    k = key.lower()
+    if k.endswith(".pdf"): return "application/pdf"
+    if k.endswith(".docx"): return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if k.endswith(".txt") or k.endswith(".md") or k.endswith(".log"): return "text/plain"
+    return "application/octet-stream"
+
+# ────────────────────────────────────────────────────────────────────────────
+# Core incremental insert helper
+
+def add_texts_batch(texts: List[str], metas: List[dict]) -> None:
+    """Embed and insert a *small* batch into FAISS to keep memory low."""
+    print(f"DEBUG: add_texts_batch got {len(texts)} texts")
+    if not texts:
+        print("WARNING: No texts passed to add_texts_batch, skipping")
+        return
+    idx = get_index()
+    # FAISS.add_texts will call our embeddings wrapper; we pass only a small batch.
+    idx.add_texts(texts=texts, metadatas=metas)
+
+# ────────────────────────────────────────────────────────────────────────────
+# Tools
+
+@mcp.tool(name="vector_reset_index")
+def vector_reset_index() -> dict:
+    """Clears the in-memory FAISS index and de-dup state."""
+    global session_index, embedded_hashes, file_hash_to_docids
+    session_index = None
+    embedded_hashes = set()
+    file_hash_to_docids = {}
+    return {"status": "reset"}
+
+@mcp.tool(name="vector_status")
+def vector_status() -> dict:
+    """Returns simple counters for the current in-memory index."""
+    idx = get_index()
+    return {
+        "docs": getattr(idx, "index", None).ntotal if getattr(idx, "index", None) else 0,
+        "files_ingested": len(embedded_hashes),
+        "file_hashes": list(embedded_hashes),
+    }
+
+# ────────────────────────────────────────────────────────────────────────────
+# S3 ingest (streaming, low-memory, incremental embedding)
+
+@mcp.tool(name="vector_ingest_s3")
+def vector_ingest_s3(
+    metadata: dict,
+    key: str,
+    max_chunk_size: int = 1200,
+    overlap: int = 200,
+    embed_batch: int = 32
+) -> dict:
+    """
+    Ingest a single S3 object into FAISS using disk-backed streaming and
+    incremental chunk → embed → insert (no full file buffers).
+    Handles empty/invalid files gracefully without crashing.
+    Use this tool for queries on larger s3 files 
+    """
+    # Cast arguments (tooling may send strings)
+    max_chunk_size = int(max_chunk_size)
+    overlap = int(overlap)
+    embed_batch = int(embed_batch)
+    if overlap >= max_chunk_size:
+        return {"status": "error", "message": f"overlap ({overlap}) must be < max_chunk_size ({max_chunk_size})"}
+
+    try:
+        s3, bucket = get_s3_client_and_bucket(metadata)
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        body: StreamingBody = obj["Body"]
+
+        # Write to temp file (PDF/DOCX random access support)
+        tmp_path = stream_s3_to_tempfile(body)
+
+        # Compute MD5 for de-duplication
+        with open(tmp_path, "rb") as f:
+            file_hash = md5_stream(f)
+
+        if file_hash in embedded_hashes:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            return {"status": "already_ingested", "file_hash": file_hash}
+
+        mime = guess_mime_from_key(key)
+        metabase = {"source": key, "bucket": bucket, "provider": "s3", "file_hash": file_hash}
+
+        # Small rolling batch to control embedding memory
+        batch_texts: List[str] = []
+        batch_metas: List[dict] = []
+        total_chunks = 0
+
+        def flush_batch():
+            nonlocal batch_texts, batch_metas, total_chunks
+            if not batch_texts:
+                return
+            filtered = [(t, m) for t, m in zip(batch_texts, batch_metas) if t.strip()]
+            if filtered:
+                texts, metas = zip(*filtered)
+                add_texts_batch(list(texts), list(metas))
+                total_chunks += len(texts)
+            # always clear
+            batch_texts, batch_metas = [], []
+
+
+        # PDF
+        if mime == "application/pdf":
+            chunk_idx = 0
+            for chunk in stream_pdf_chunks_from_path(tmp_path, max_chunk_size, overlap):
+                if not chunk.strip():
+                    continue
+                print(f"PDF chunk len={len(chunk)}") 
+                batch_texts.append(chunk)
+                batch_metas.append({**metabase, "chunk_index": chunk_idx})
+                chunk_idx += 1
+                if len(batch_texts) >= embed_batch:
+                    flush_batch()
+            flush_batch()
+
+        # DOCX
+        elif mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            chunk_idx = 0
+            for chunk in stream_docx_chunks_from_path(tmp_path, max_chunk_size, overlap):
+                if not chunk.strip():
+                    continue
+                batch_texts.append(chunk)
+                batch_metas.append({**metabase, "chunk_index": chunk_idx})
+                chunk_idx += 1
+                if len(batch_texts) >= embed_batch:
+                    flush_batch()
+            flush_batch()
+
+        # TEXT and others
+        else:
+            obj2 = s3.get_object(Bucket=bucket, Key=key)
+            body2: StreamingBody = obj2["Body"]
+            chunk_idx = 0
+            for chunk in stream_text_chunks_iter_lines(body2, max_chunk_size, overlap, encoding="utf-8"):
+                if not chunk.strip():
+                    continue
+                batch_texts.append(chunk)
+                batch_metas.append({**metabase, "chunk_index": chunk_idx})
+                chunk_idx += 1
+                if len(batch_texts) >= embed_batch:
+                    flush_batch()
+            flush_batch()
+
+        # Cleanup
+        embedded_hashes.add(file_hash)
+        file_hash_to_docids[file_hash] = [f"{file_hash}:{i}" for i in range(total_chunks)]
+
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+        if total_chunks == 0:
+            return {"status": "empty", "file_hash": file_hash}
+
+        return {"status": "ingested", "file_hash": file_hash, "chunks": total_chunks}
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+        
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Google Drive ingest (downloads to disk, then same streaming split/insert)
+
+@mcp.tool(name="vector_ingest_gdrive")
+def vector_ingest_gdrive(
+    metadata: dict,
+    file_id: str,
+    max_chunk_size: int = 1200,
+    overlap: int = 200,
+    embed_batch: int = 32
+) -> dict:
+    max_chunk_size = int(max_chunk_size)
+    overlap = int(overlap)
+    embed_batch = int(embed_batch)
+    if overlap >= max_chunk_size:
+        return {"status": "error", "message": f"overlap ({overlap}) must be < max_chunk_size ({max_chunk_size})"}
+
+    try:
+        svc = get_gdrive_service(metadata)
+
+        # Get metadata (name & mime)
+        meta = svc.files().get(fileId=file_id, fields="id,name,mimeType,size").execute()
+        file_name = meta.get("name", file_id)
+        mimeType = meta.get("mimeType", "")
+        # Download to temp file
+        request = svc.files().get_media(fileId=file_id)
+        tmp = tempfile.NamedTemporaryFile(delete=False)
+        tmp_path = tmp.name
+        downloader = MediaIoBaseDownload(tmp, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        tmp.flush()
+        tmp.close()
+
+        # Hash
+        with open(tmp_path, "rb") as f:
+            file_hash = md5_stream(f)
+        if file_hash in embedded_hashes:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            return {"status": "already_ingested", "file_hash": file_hash}
+
+        metabase = {"source": file_name, "gdrive_id": file_id, "provider": "gdrive", "mimeType": mimeType, "file_hash": file_hash}
+
+        batch_texts: List[str] = []
+        batch_metas: List[dict] = []
+        total_chunks = 0
+
+        def flush_batch():
+            nonlocal batch_texts, batch_metas, total_chunks
+            if batch_texts:
+                add_texts_batch(batch_texts, batch_metas)
+                total_chunks += len(batch_texts)
+                batch_texts, batch_metas = [], []
+
+        # Determine by extension for parsing
+        mime = guess_mime_from_key(file_name)
+
+        if mime == "application/pdf":
+            chunk_idx = 0
+            for chunk in stream_pdf_chunks_from_path(tmp_path, max_chunk_size, overlap):
+                batch_texts.append(chunk)
+                batch_metas.append({**metabase, "chunk_index": chunk_idx})
+                chunk_idx += 1
+                if len(batch_texts) >= embed_batch:
+                    flush_batch()
+            flush_batch()
+
+        elif mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            chunk_idx = 0
+            for chunk in stream_docx_chunks_from_path(tmp_path, max_chunk_size, overlap):
+                batch_texts.append(chunk)
+                batch_metas.append({**metabase, "chunk_index": chunk_idx})
+                chunk_idx += 1
+                if len(batch_texts) >= embed_batch:
+                    flush_batch()
+            flush_batch()
+
+        else:
+            # Treat as text by reading file in small blocks and splitting on the fly
+            splitter = RecursiveCharacterTextSplitter(chunk_size=max_chunk_size, chunk_overlap=overlap,
+                                                      separators=["\n\n", "\n", " ", ""])
+            buffer = ""
+            chunk_idx = 0
+            with open(tmp_path, "rb") as f:
+                for raw_line in f:
+                    try:
+                        line = raw_line.decode("utf-8", errors="ignore")
+                    except Exception:
+                        line = ""
+                    buffer += line
+                    if len(buffer) >= max_chunk_size * 2:
+                        for c in splitter.split_text(buffer):
+                            if c.strip():
+                                batch_texts.append(c)
+                                batch_metas.append({**metabase, "chunk_index": chunk_idx})
+                                chunk_idx += 1
+                                if len(batch_texts) >= embed_batch:
+                                    flush_batch()
+                        buffer = ""
+            if buffer:
+                for c in splitter.split_text(buffer):
+                    if c.strip():
+                        batch_texts.append(c)
+                        batch_metas.append({**metabase, "chunk_index": chunk_idx})
+                        chunk_idx += 1
+                        if len(batch_texts) >= embed_batch:
+                            flush_batch()
+            flush_batch()
+
+        embedded_hashes.add(file_hash)
+        file_hash_to_docids[file_hash] = [f"{file_hash}:{i}" for i in range(total_chunks)]
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+        if total_chunks == 0:
+            return {"status": "empty", "file_hash": file_hash}
+        return {"status": "ingested", "file_hash": file_hash, "chunks": total_chunks}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# ────────────────────────────────────────────────────────────────────────────
+# Raw text ingest (already loaded externally)
+
+@mcp.tool(name="vector_ingest_text")
+def vector_ingest_text(
+    doc_id: str,
+    text: str,
+    max_chunk_size: int = 1200,
+    overlap: int = 200,
+    embed_batch: int = 32
+) -> dict:
+    max_chunk_size = int(max_chunk_size)
+    overlap = int(overlap)
+    embed_batch = int(embed_batch)
+    if overlap >= max_chunk_size:
+        return {"status": "error", "message": f"overlap ({overlap}) must be < max_chunk_size ({max_chunk_size})"}
+
+    raw = (text or "").encode("utf-8", errors="ignore")
+    # Hash without keeping large buffers
+    h = hashlib.md5()
+    h.update(raw)
+    file_hash = h.hexdigest()
+    if file_hash in embedded_hashes:
+        return {"status": "already_ingested", "file_hash": file_hash}
+
+    splitter = RecursiveCharacterTextSplitter(chunk_size=max_chunk_size, chunk_overlap=overlap,
+                                              separators=["\n\n", "\n", " ", ""])
+
+    metabase = {"source": doc_id, "provider": "raw", "file_hash": file_hash}
+    batch_texts: List[str] = []
+    batch_metas: List[dict] = []
+    total_chunks = 0
+    chunk_idx = 0
+
+    for c in splitter.split_text(text or ""):
+        if not c.strip():
+            continue
+        batch_texts.append(c)
+        batch_metas.append({**metabase, "chunk_index": chunk_idx})
+        chunk_idx += 1
+        if len(batch_texts) >= embed_batch:
+            add_texts_batch(batch_texts, batch_metas)
+            total_chunks += len(batch_texts)
+            batch_texts, batch_metas = [], []
+
+    if batch_texts:
+        add_texts_batch(batch_texts, batch_metas)
+        total_chunks += len(batch_texts)
+
+    embedded_hashes.add(file_hash)
+    file_hash_to_docids[file_hash] = [f"{file_hash}:{i}" for i in range(total_chunks)]
+    if total_chunks == 0:
+        return {"status": "empty", "file_hash": file_hash}
+    return {"status": "ingested", "file_hash": file_hash, "chunks": total_chunks}
+
+# ────────────────────────────────────────────────────────────────────────────
+# Query
+
+@mcp.tool(name="vector_query")
+def vector_query(question: str, top_k: int = 3) -> str:
+    """
+    Semantic search over the in-memory FAISS index.
+    Returns the top_k matches with metadata and content snippets.
+    Uses top_k=3 as default.
+    """
+    idx = get_index()
+    if getattr(idx, "index", None) is None or idx.index.ntotal == 0:
+        return json.dumps({"error": "index_empty"})
+
+    docs = idx.similarity_search(question, k=max(1, int(top_k)))
+    out = []
+    for d in docs:
+        out.append({
+            "text": (d.page_content or "")[:800],
+            "metadata": d.metadata or {}
+        })
+    return json.dumps(out)
+
+# ────────────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    mcp.run(transport="sse")
