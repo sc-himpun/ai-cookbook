@@ -13,3 +13,4 @@ starlette
 uvicorn 
 requests
 asyncio
+PyMuPDF

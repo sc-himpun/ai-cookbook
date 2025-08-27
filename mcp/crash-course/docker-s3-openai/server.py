@@ -81,7 +81,7 @@ def get_s3_client_and_bucket(metadata: Dict) -> Tuple[boto3.client, str]:
 mcp = FastMCP(name="S3Toolkit", host="0.0.0.0", port=8050)
 
 
-def extract_text_from_file(key: str, raw_bytes: bytes, stream: bool = False, max_chars: int = None) -> str:
+def extract_text_from_file(key: str, raw_bytes: bytes, stream: bool = False, max_chars: int = 0) -> str:
     """
     Extracts text based on file type.
     - PDF: PyMuPDF (streams page-by-page if stream=True)

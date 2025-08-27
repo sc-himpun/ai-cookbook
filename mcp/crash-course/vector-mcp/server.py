@@ -2,19 +2,20 @@
 from mcp.server.fastmcp import FastMCP
 from typing import Dict, List, Tuple, Iterable, Optional
 import io, hashlib, json, os, tempfile, shutil
-
+from google.oauth2.credentials import Credentials
 # Text extraction
 import fitz                # PyMuPDF
 from docx import Document  # python-docx
 
+from google.auth.transport.requests import Request as GoogleRequest
 # S3
 import boto3
 from botocore.response import StreamingBody
 
 # Google Drive
 from google.oauth2.service_account import Credentials as GServiceAccountCreds
-from googleapiclient.discovery import build as gbuild
 from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.discovery import build
 
 # LangChain / FAISS
 from langchain_community.vectorstores import FAISS
@@ -23,16 +24,23 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 # OpenAI embeddings (>= 1.0 client)
 import openai
 from openai import OpenAI
+from langchain_openai import OpenAIEmbeddings  
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from dotenv import load_dotenv
+
+load_dotenv()
+GDRIVE_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
+GDRIVE_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
+
 openai.api_key = os.environ["OPENAI_API_KEY"]
 print("OpenAI API key set from environment", os.environ.get("OPENAI_API_KEY") is not None)
 # ────────────────────────────────────────────────────────────────────────────
 # MCP setup
 mcp = FastMCP(name="VectorToolkit", host="0.0.0.0", port=8060)
-from langchain_openai import OpenAIEmbeddings  
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.embeddings import HuggingFaceEmbeddings
 
-def get_embedding_backend(provider: str = "huggingface", model_name: str = None):
+
+def get_embedding_backend(provider: str = "huggingface", model_name: str = "intfloat/e5-base-v2"):
     """
     Returns a LangChain-compatible embedding model.
     provider: "huggingface" | "openai"
@@ -108,15 +116,46 @@ def get_s3_client_and_bucket(metadata: Dict) -> Tuple[boto3.client, str]:
         params["endpoint_url"] = endpoint
     return boto3.client("s3", **params), bucket
 
-def get_gdrive_service(metadata: Dict):
-    scopes = ["https://www.googleapis.com/auth/drive.readonly"]
-    if "service_account_info" in metadata:
-        creds = GServiceAccountCreds.from_service_account_info(metadata["service_account_info"], scopes=scopes)
-    elif "service_account_file" in metadata:
-        creds = GServiceAccountCreds.from_service_account_file(metadata["service_account_file"], scopes=scopes)
-    else:
-        raise ValueError("GDrive metadata must include 'service_account_info' or 'service_account_file'")
-    return gbuild("drive", "v3", credentials=creds)
+
+def get_google_creds(metadata: Optional[Dict]) -> Optional[Credentials]:
+    """
+    Extract and refresh Google credentials from metadata.
+
+    Args:
+        metadata (Optional[Dict]): Dict with 'access_token', 'refresh_token', etc.
+
+    Returns:
+        google.oauth2.credentials.Credentials or None
+    """
+    metadatag = metadata.get("gdrive") if metadata else None
+    if not metadatag:
+        return None
+
+    print("DEBUG: GDrive metadata:", metadatag)
+    access_token = metadatag.get("access_token")
+    refresh_token = metadatag.get("refresh_token")
+    token_uri = "https://oauth2.googleapis.com/token"
+
+    if not access_token:
+        return None
+
+    creds = Credentials(
+        token=access_token,
+        refresh_token=refresh_token if refresh_token else None,
+        client_id=GDRIVE_CLIENT_ID,
+        client_secret=GDRIVE_CLIENT_SECRET,
+        token_uri=token_uri
+    )
+
+    # Refresh if expired and refresh_token is available
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(GoogleRequest())
+        except Exception as e:
+            print(f"🔁 Failed to refresh token: {e}")
+            return None
+
+    return creds
 
 # ────────────────────────────────────────────────────────────────────────────
 # Helpers: hashing, chunking and streaming text extraction
@@ -385,6 +424,15 @@ def vector_ingest_s3(
 # ────────────────────────────────────────────────────────────────────────────
 # Google Drive ingest (downloads to disk, then same streaming split/insert)
 
+def get_drive_service(metadata: Dict):
+    """
+    Create a Google Drive API service using credentials from metadata.
+    """
+    creds = get_google_creds(metadata)
+    if not creds:
+        raise ValueError("Could not get valid Google credentials from metadata.")
+    return build("drive", "v3", credentials=creds)
+
 @mcp.tool(name="vector_ingest_gdrive")
 def vector_ingest_gdrive(
     metadata: dict,
@@ -400,7 +448,8 @@ def vector_ingest_gdrive(
         return {"status": "error", "message": f"overlap ({overlap}) must be < max_chunk_size ({max_chunk_size})"}
 
     try:
-        svc = get_gdrive_service(metadata)
+
+        svc = get_drive_service(metadata)
 
         # Get metadata (name & mime)
         meta = svc.files().get(fileId=file_id, fields="id,name,mimeType,size").execute()

@@ -19,13 +19,13 @@ This project demonstrates how to run an MCP (Model Control Protocol) server usin
 ### Step 1: Build the Docker image
 
 ```bash
-docker build -t mcp-server-jira .
+docker build -t mcp-server-salesforce .
 ```
 
 ### Step 2: Run the Docker container
 
 ```bash
-docker run  --env-file .env --network dbnetwork  --name mcp-server-jira -p 8002:8002  -d mcp-server-jira
+docker run  --env-file .env --network dbnetwork  --name mcp-server-salesforce -p 8091:8091  -d mcp-server-salesforce
 ```
 
 This will start the MCP server inside a Docker container and expose it on port 8050.
