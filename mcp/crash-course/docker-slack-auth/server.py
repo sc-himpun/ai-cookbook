@@ -143,12 +143,19 @@ async def oauth_callback(request: Request):
         return JSONResponse({"error": "OAuth failed", "details": token_resp}, status_code=400)
 
     access_token = token_resp["access_token"]
+    # refresh_token = token_resp["refresh_token"]
     team_name = token_resp.get("team", {}).get("name", "unknown")
     user_id = token_resp.get("authed_user", {}).get("id", "unknown")
 
     user_tokens[user_id] = access_token  # Store using Slack user ID
 
-    return JSONResponse({"message": f"Authenticated for team '{team_name}' as user {user_id}"})
+    # return JSONResponse({"message": f"Authenticated for team '{team_name}' as user {user_id}"})
+    return JSONResponse({
+            # "message": f"Authenticated as {email}",
+            # "email": email,
+            "access_token": access_token,
+            # "refresh_token": refresh_token
+        })
 
 
 # ─── Starlette App ─────────────────────────────────────────────────────────

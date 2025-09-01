@@ -397,6 +397,24 @@ def create_task(metadata: dict, subject: str, due_date: str) -> str:
     })
     return json.dumps(result, indent=2)
 
+@mcp.tool(name="salesforce_update_task_status")
+def update_task_status(metadata: dict, task_id: str, status: str) -> str:
+    """Update Task status (e.g., Not Started → In Progress → Completed)."""
+    sf = get_salesforce_creds(metadata)
+    task_api = getattr(sf, "Task")
+    task_api.update(task_id, {"Status": status})
+    return f"✅ Task {task_id} updated to status '{status}'"
+
+
+@mcp.tool(name="salesforce_update_event_time")
+def update_event_time(metadata: dict, event_id: str, start_datetime: str, end_datetime: str) -> str:
+    """Update Event start and end time. Datetime must be UTC ISO8601 (YYYY-MM-DDTHH:MM:SSZ)."""
+    sf = get_salesforce_creds(metadata)
+    event_api = getattr(sf, "Event")
+    event_api.update(event_id, {"StartDateTime": start_datetime, "EndDateTime": end_datetime})
+    return f"✅ Event {event_id} updated with new times"
+
+
 @mcp.tool(name="salesforce_get_current_time")
 def get_current_time(metadata: dict, utc: bool = True) -> str:
     """Get the current time.
@@ -443,10 +461,279 @@ def list_events(metadata: dict, limit: int = 10) -> str:
     result = sf.query_all(query)
     return json.dumps(result["records"], indent=2)
 
+# ---------------------------additional
+
+@mcp.tool(name="salesforce_search_objects")
+def search_objects(metadata: dict, keyword: str) -> str:
+    """
+    Search for standard and custom objects by name.
+
+    Example:
+        salesforce_search_objects(metadata={...}, keyword="Account")
+    """
+    sf = get_salesforce_creds(metadata)
+    desc = sf.describe()
+    matches = [
+        obj["name"] for obj in desc["sobjects"] # type: ignore
+        if keyword.lower() in obj["name"].lower()
+    ]
+    return json.dumps(matches, indent=2)
 
 
-    
+@mcp.tool(name="salesforce_describe_object")
+def describe_object(metadata: dict, object_name: str) -> str:
+    """
+    Get detailed schema of an object: fields, relationships, picklists.
 
+    Example:
+        salesforce_describe_object(metadata={...}, object_name="Account")
+    """
+    sf = get_salesforce_creds(metadata)
+    obj_api = getattr(sf, object_name)
+    desc = obj_api.describe()
+    return json.dumps(desc, indent=2)
+
+
+@mcp.tool(name="salesforce_query_records")
+def query_records(metadata: dict, soql: str) -> str:
+    """
+    Execute SOQL query with relationship support.
+
+    Example:
+        salesforce_query_records(metadata={...},
+          soql="SELECT Id, Name, (SELECT Id, LastName FROM Contacts) FROM Account")
+    """
+    sf = get_salesforce_creds(metadata)
+    res = sf.query_all(soql)
+    return json.dumps(res, indent=2)
+
+@mcp.tool(name="salesforce_aggregate_query")
+def aggregate_query(metadata: dict, soql: str) -> str:
+    """
+    Execute aggregate queries (COUNT, SUM, AVG, MIN, MAX, GROUP BY).
+
+    Example:
+        salesforce_aggregate_query(metadata={...},
+          soql="SELECT StageName, COUNT(Id) FROM Opportunity GROUP BY StageName")
+    """
+    sf = get_salesforce_creds(metadata)
+    res = sf.query_all(soql)
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool(name="salesforce_dml_records")
+def dml_records(metadata: dict, object_name: str, action: str, records: list) -> str:
+    """
+    Perform DML operations (insert, update, delete, upsert).
+
+    Args:
+        object_name: API name (e.g., "Account").
+        action: One of ["insert", "update", "delete", "upsert"].
+        records: List of dicts with field data.
+
+    Example:
+        salesforce_dml_records(metadata={...}, object_name="Account",
+          action="insert", records=[{"Name":"NewCo"}])
+    """
+    sf = get_salesforce_creds(metadata)
+    obj_api = getattr(sf, object_name)
+
+    if action == "insert":
+        res = [obj_api.create(r) for r in records]
+    elif action == "update":
+        res = [obj_api.update(r["Id"], r) for r in records]
+    elif action == "delete":
+        res = [obj_api.delete(r["Id"]) for r in records]
+    elif action == "upsert":
+        res = [obj_api.upsert(r["External_Id__c"], r) for r in records]
+    else:
+        raise ValueError("Invalid action")
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool(name="salesforce_search_all")
+def search_all(metadata: dict, sosl: str) -> str:
+    """
+    Perform SOSL search across multiple objects.
+
+    Example:
+        salesforce_search_all(metadata={...},
+          sosl="FIND 'cloud' IN ALL FIELDS RETURNING Account(Name), Opportunity(Name)")
+    """
+    sf = get_salesforce_creds(metadata)
+    res = sf.search(sosl)
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool(name="salesforce_read_apex")
+def read_apex(metadata: dict, class_name: str) -> str:
+    """Fetch Apex class source by name (supports wildcards)."""
+    sf = get_salesforce_creds(metadata)
+
+    soql = f"""
+        SELECT Id, Name, Body, ApiVersion, Status
+        FROM ApexClass
+        WHERE Name LIKE '{class_name}'
+    """
+
+    res = sf.toolingquery(soql)  # type: ignore
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool(name="salesforce_write_apex")
+def write_apex(metadata: dict, name: str, body: str, api_version: float = 59.0) -> str:
+    """Create or update an Apex class source using the Salesforce Tooling API."""
+    sf = get_salesforce_creds(metadata)
+
+    # Prepare payload for Apex class
+    payload = {
+        "Name": name,
+        "Body": body,
+        "ApiVersion": api_version,
+        "Status": "Active"
+    }
+
+    # Create Apex class via Tooling API
+    res = sf.toolingexecute(
+        "sobjects/ApexClass",
+        method="POST",
+        data=payload
+    )
+
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool(name="salesforce_execute_anonymous")
+def execute_anonymous(metadata: dict, apex_code: str) -> str:
+    """Execute anonymous Apex code."""
+    sf = get_salesforce_creds(metadata)
+    res = sf.restful("tooling/executeAnonymous", method="GET", params={"anonymousBody": apex_code})
+    return json.dumps(res, indent=2)
+
+@mcp.tool(name="salesforce_create_lead")
+def create_lead(metadata: dict, last_name: str, company: str, first_name: str = "", email: str = "", phone: str = "") -> str:
+    """Create a new Salesforce Lead.
+    Required: last_name, company
+    Optional: first_name, email, phone
+    Returns: Created lead details as JSON."""
+    sf = get_salesforce_creds(metadata)
+    lead_obj: Any = sf.Lead
+    payload = {
+        "LastName": last_name,
+        "Company": company
+    }
+    if first_name:
+        payload["FirstName"] = first_name
+    if email:
+        payload["Email"] = email
+    if phone:
+        payload["Phone"] = phone
+
+    result = lead_obj.create(payload)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool(name="salesforce_list_leads")
+def list_leads(metadata: dict, limit: int = 10) -> str:
+    """List Salesforce Leads.
+    Default limit = 10.
+    Returns: List of leads with Id, Name, Company, Email, Phone."""
+    sf = get_salesforce_creds(metadata)
+    query = f"SELECT Id, FirstName, LastName, Company, Email, Phone FROM Lead ORDER BY CreatedDate DESC LIMIT {limit}"
+    res = sf.query(query)
+    return json.dumps(res.get("records", []), indent=2)
+
+
+@mcp.tool(name="salesforce_get_lead")
+def get_lead(metadata: dict, lead_id: str) -> str:
+    """Fetch details of a Salesforce Lead by ID.
+    Returns: Lead record as JSON."""
+    sf = get_salesforce_creds(metadata)
+    lead_obj: Any = sf.Lead
+    result = lead_obj.get(lead_id)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool(name="salesforce_update_lead")
+def update_lead(metadata: dict, lead_id: str, updates: dict) -> str:
+    """Update a Salesforce Lead.
+    Params:
+      - lead_id: Lead record Id
+      - updates: dict of fields to update (e.g., {"Status": "Qualified"})
+    Returns: Update response as JSON."""
+    sf = get_salesforce_creds(metadata)
+    lead_obj: Any = sf.Lead
+    result = lead_obj.update(lead_id, updates)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool(name="salesforce_delete_lead")
+def delete_lead(metadata: dict, lead_id: str) -> str:
+    """Delete a Salesforce Lead by ID.
+    Returns: Deletion response as JSON."""
+    sf = get_salesforce_creds(metadata)
+    lead_obj: Any = sf.Lead
+    result = lead_obj.delete(lead_id)
+    return json.dumps(result, indent=2)
+
+
+
+
+@mcp.tool(name="salesforce_convert_lead")
+def convert_lead(
+    metadata: dict,
+    lead_id: str,
+    account_id: Optional[str] = None,
+    contact_id: Optional[str] = None,
+    opportunity_name: Optional[str] = None,
+    overwrite: bool = True,
+    do_not_create_opportunity: bool = False
+) -> str:
+    """
+    Convert a Salesforce Lead into Account, Contact, and optionally Opportunity.
+    Pre-checks if the lead is already converted before attempting conversion.
+    """
+    sf = get_salesforce_creds(metadata)
+
+    # 🔍 Pre-check if lead is already converted
+    lead: Dict[str, Any] = sf.Lead.get(lead_id)  # type: ignore[attr-defined]
+    if lead.get("IsConverted"):
+        return json.dumps({
+            "status": "skipped",
+            "message": f"Lead {lead_id} is already converted.",
+            "convertedAccountId": lead.get("ConvertedAccountId"),
+            "convertedContactId": lead.get("ConvertedContactId"),
+            "convertedOpportunityId": lead.get("ConvertedOpportunityId")
+        }, indent=2)
+
+    # 📝 Build payload with explicit typing
+    payload: Dict[str, Any] = {
+        "overwriteLeadSource": overwrite,
+        "doNotCreateOpportunity": do_not_create_opportunity
+    }
+    if account_id:
+        payload["accountId"] = account_id
+    if contact_id:
+        payload["contactId"] = contact_id
+    if opportunity_name and not do_not_create_opportunity:
+        payload["opportunityName"] = opportunity_name
+
+    # ✅ Correct Lead conversion endpoint
+    res = sf.restful(
+        f"sobjects/Lead/{lead_id}/_convert", 
+        method="POST", 
+        data=payload  # type: ignore[arg-type]
+    )  # type: ignore[attr-defined]
+
+    return json.dumps({
+        "status": "success",
+        "message": f"Lead {lead_id} converted successfully.",
+        "result": res
+    }, indent=2)
+
+
+
+#  --
 def _get_authorization_url() -> str:
     scope = " ".join(SCOPES)
     url = (
