@@ -50,7 +50,8 @@ class MCPOpenAIClient:
             # "onedrive-business_sharepoint": "http://localhost:8057/sse",
             # "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
             # "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
-            "jira"  : "http://localhost:8002/mcp-server/sse/",
+            # "jira"  : "http://localhost:8002/mcp-server/sse/",
+            "confluence"  : "http://localhost:8071/sse/",
         }
 
         for key, url in servers.items():

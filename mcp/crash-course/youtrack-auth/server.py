@@ -11,8 +11,6 @@ from starlette.requests import Request
 import base64
 import requests
 from requests.auth import HTTPBasicAuth
-from fastapi.responses import JSONResponse
-from requests.auth import HTTPBasicAuth
 import requests
 import os
 import urllib.parse
@@ -329,7 +327,8 @@ async def authorize(request: Request):
 async def oauth2callback(request: Request):
     """Handle OAuth2 callback and exchange code for token (confidential client only)."""
     code = request.query_params.get("code")
-    base_url = os.getenv("YOUTRACK_URL")  # e.g., https://<org>.myjetbrains.com
+    # base_url = os.getenv("YOUTRACK_URL")  # e.g., https://<org>.myjetbrains.com
+    base_url = "https://scryanalytics.myjetbrains.com"
 
     if not code or not base_url:
         return JSONResponse({"error": "Missing code or YOUTRACK_URL"}, status_code=400)

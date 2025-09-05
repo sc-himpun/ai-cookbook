@@ -10,3 +10,6 @@ google-auth-httplib2
 google-auth-oauthlib
 google-auth 
 PyGithub
+starlette 
+uvicorn 
+requests
