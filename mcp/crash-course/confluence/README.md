@@ -25,7 +25,7 @@ docker build -t mcp-server-confluence .
 ### Step 2: Run the Docker container
 
 ```bash
-docker run  --env-file .env --network dbnetwork  --name mcp-server-confluence -p 8002:8002  -d mcp-server-confluence
+docker run  --env-file .env --network dbnetwork  --name mcp-server-confluence -p 8071:8071  -d mcp-server-confluence
 ```
 
 This will start the MCP server inside a Docker container and expose it on port 8050.
