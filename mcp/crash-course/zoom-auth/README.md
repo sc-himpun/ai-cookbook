@@ -25,7 +25,7 @@ docker build -t mcp-server-zoom .
 ### Step 2: Run the Docker container
 
 ```bash
-docker run --env-file .env --network dbnetwork  --name mcp-server-zoom -p 8055:8055  -d mcp-server-zoom
+docker run --env-file .env --network dbnetwork  --name mcp-server-zoom -p 8019:8019  -d mcp-server-zoom
 ```
 
 This will start the MCP server inside a Docker container and expose it on port 8050.

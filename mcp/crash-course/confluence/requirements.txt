@@ -1,9 +1,9 @@
 mcp[cli]
 boto3
-fastmcp
+fastmcp==2.9.0
+fastmcp-http==0.1.4
 openai
 langchain
-fastmcp-http
 langchain-community
 google-api-python-client
 google-auth-httplib2
