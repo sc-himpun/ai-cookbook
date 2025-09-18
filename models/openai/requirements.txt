@@ -1,4 +1,4 @@
+instructor
 openai==1.66.2
 openai-agents
 pydantic
-instructor

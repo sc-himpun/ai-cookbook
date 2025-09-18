@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from fastmcp import FastMCP
 import requests
 from typing import Dict, Optional, Union

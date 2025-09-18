@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # vector_mcp_server.py
 from mcp.server.fastmcp import FastMCP
 from typing import Dict, List, Tuple, Iterator

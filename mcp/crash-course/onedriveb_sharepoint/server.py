@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from mcp.server.fastmcp import FastMCP
 from msgraph import GraphServiceClient
 from azure.identity import ClientSecretCredential

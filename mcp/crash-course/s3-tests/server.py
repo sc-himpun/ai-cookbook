@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # s3_mcp_server.py
 from mcp.server.fastmcp import FastMCP
 import boto3, io, json, hashlib

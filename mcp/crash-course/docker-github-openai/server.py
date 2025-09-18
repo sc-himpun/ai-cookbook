@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 from github import Github

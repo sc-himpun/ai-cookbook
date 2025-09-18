@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from openai import OpenAI
 from mem0 import Memory
 from dotenv import load_dotenv

@@ -1,9 +1,9 @@
-requests
+docling
 ipykernel
-python-dotenv
+lancedb
 openai
 pydantic
-docling
-lancedb
+python-dotenv
+requests
 streamlit
 tiktoken

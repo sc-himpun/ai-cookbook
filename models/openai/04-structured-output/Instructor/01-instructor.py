@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import instructor
 from pydantic import BaseModel, Field
 from openai import OpenAI

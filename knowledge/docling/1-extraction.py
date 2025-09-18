@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from docling.document_converter import DocumentConverter
 from utils.sitemap import get_sitemap_urls
 

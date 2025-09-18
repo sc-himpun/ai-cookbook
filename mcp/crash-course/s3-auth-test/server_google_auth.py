@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # requires below env variables to be set:
 # GOOGLE_CLIENT_ID=your-google-client-id
 # GOOGLE_CLIENT_SECRET=your-google-client-secret

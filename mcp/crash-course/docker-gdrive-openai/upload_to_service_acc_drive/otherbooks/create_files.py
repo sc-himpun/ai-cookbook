@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # filename: generate_mystery_books.py
 
 author_books = {

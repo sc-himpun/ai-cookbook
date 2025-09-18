@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from agents import Agent, Runner
 import nest_asyncio
 

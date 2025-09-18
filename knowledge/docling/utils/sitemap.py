@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import xml.etree.ElementTree as ET
 from typing import List
 from urllib.parse import urljoin

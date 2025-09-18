@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from typing import Optional, Literal
 from pydantic import BaseModel, Field
 from openai import OpenAI

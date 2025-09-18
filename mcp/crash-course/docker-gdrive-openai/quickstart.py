@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os.path
 
 from google.auth.transport.requests import Request

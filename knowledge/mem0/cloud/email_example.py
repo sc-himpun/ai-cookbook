@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from mem0 import MemoryClient
 from email.parser import Parser
 from dotenv import load_dotenv

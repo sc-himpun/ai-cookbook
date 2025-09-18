@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from docling.chunking import HybridChunker
 from docling.document_converter import DocumentConverter
 from dotenv import load_dotenv

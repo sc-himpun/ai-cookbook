@@ -1,9 +1,9 @@
-mcp[cli]
 boto3
 fastmcp
-openai
-langchain
 fastmcp-http
+langchain
 langchain-community
-python-docx 
+mcp[cli]
+openai
 PyMuPDF
+python-docx 

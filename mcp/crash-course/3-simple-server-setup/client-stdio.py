@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import asyncio
 import nest_asyncio
 from mcp import ClientSession, StdioServerParameters

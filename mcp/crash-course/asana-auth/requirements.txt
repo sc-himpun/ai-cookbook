@@ -1,9 +1,9 @@
-mcp[cli]
-fastmcp
-openai
-langchain
-fastmcp-http
-starlette
-requests
-python-dotenv
 asana
+fastmcp
+fastmcp-http
+langchain
+mcp[cli]
+openai
+python-dotenv
+requests
+starlette

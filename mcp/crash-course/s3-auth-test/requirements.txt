@@ -1,7 +1,7 @@
-mcp[cli]
 boto3
 fastmcp
-openai
-langchain
 fastmcp-http
+langchain
 langchain-community
+mcp[cli]
+openai
