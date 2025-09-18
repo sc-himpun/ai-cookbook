@@ -9,12 +9,7 @@ from starlette.routing import Route, Mount
 from starlette.responses import JSONResponse, RedirectResponse
 from starlette.requests import Request
 import json
-import os
-import requests
-import tempfile
-import json
 from typing import Dict
-import io
 import fitz  # PyMuPDF
 
 # ─── Config ──────────────────────────────────────────────────────────────────
@@ -113,21 +108,6 @@ def get_file_info(metadata: Dict, file_id: str):
     resp = requests.get(url, headers={"Authorization": f"Bearer {access_token}"})
     return resp.json() if resp.status_code == 200 else f"❌ Failed: {resp.text}"
 
-@mcp.tool(name="box_download_file")
-def download_file(metadata: Dict, file_id: str):
-    """Download a Box file (returns metadata + download URL)."""
-    creds = get_box_creds(metadata)
-    if not creds:
-        return "❌ Box credentials missing or invalid."
-    access_token = creds["access_token"]
-
-    url = f"https://api.box.com/2.0/files/{file_id}/content"
-    resp = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, allow_redirects=False)
-
-    if resp.status_code in (302, 303):  # Redirect to actual download URL
-        return {"download_url": resp.headers.get("Location")}
-    return f"❌ Failed: {resp.text}"
-
 
 @mcp.tool(name="box_search_files")
 def box_search_files(
@@ -225,23 +205,24 @@ def box_list_folders(
 
 
 @mcp.tool(name="box_fetch_file")
-def box_fetch_file(metadata: Dict, file_id: str, download: bool = False) -> str:
+def box_fetch_file(metadata: Dict, file_id: str, preview: bool = True) -> str:
     """
     Fetch details of a Box file by ID.
-    - If download=True: also return extracted text (for PDFs/text files).
+    - Always returns metadata.
+    - If preview=True and file is small text/PDF, returns inline preview.
     """
     creds = get_box_creds(metadata)
     if not creds:
         return "❌ Box credentials missing or invalid."
     access_token = creds["access_token"]
 
-    # 1 Get file metadata
-    url = f"https://api.box.com/2.0/files/{file_id}"
-    resp = requests.get(url, headers={"Authorization": f"Bearer {access_token}"})
+    # 1. Get file metadata
+    info_url = f"https://api.box.com/2.0/files/{file_id}"
+    resp = requests.get(info_url, headers={"Authorization": f"Bearer {access_token}"})
     if resp.status_code != 200:
         return f"❌ Metadata fetch failed: {resp.text}"
-
     file_info = resp.json()
+
     result = {
         "id": file_info.get("id"),
         "name": file_info.get("name"),
@@ -249,44 +230,65 @@ def box_fetch_file(metadata: Dict, file_id: str, download: bool = False) -> str:
         "type": file_info.get("type"),
     }
 
-    if not download:
-        return json.dumps(result, indent=2)
-
-    # 2 Download file bytes
+    # 2. Fetch content directly (follow redirect)
     content_url = f"https://api.box.com/2.0/files/{file_id}/content"
-    resp = requests.get(content_url, headers={"Authorization": f"Bearer {access_token}"})
-    if resp.status_code != 200:
-        return f"❌ File download failed: {resp.text}"
+    content_resp = requests.get(
+        content_url,
+        headers={"Authorization": f"Bearer {access_token}"},
+        allow_redirects=True  # let requests follow to boxcloud CDN
+    )
+    if content_resp.status_code != 200:
+        return f"❌ File download failed: {content_resp.text}"
 
-    file_bytes = io.BytesIO(resp.content)
-    size = int(file_info.get("size", 0) or 0)
-    name = file_info.get("name", "unknown")
+    file_bytes = content_resp.content
+    result["downloaded"] = True
 
-    # 3 Extract content
-    if name.lower().endswith(".pdf"):
-        if size > MAX_PDF_SIZE:
-            result["preview"] = json.dumps({
-                "delegate": "vector_ingest_box",
-                "key": name,
-                "reason": f"File size {size/1024:.1f} KB exceeds threshold ({MAX_PDF_SIZE/1024} KB). Use 'vector_ingest_box'."
-            })
-        else:
-            text_parts = []
-            with fitz.open(stream=file_bytes.read(), filetype="pdf") as doc:
-                for page in doc:
-                    text = page.get_text("text", flags=fitz.TEXT_PRESERVE_WHITESPACE)  # type: ignore
-                    if text.strip():
-                        text_parts.append(text)
-            result["preview"] = "\n".join(text_parts) if text_parts else "⚠️ No extractable text in PDF."
-    else:
+    # 3. Preview if requested and file is small
+    if preview:
+        name = (file_info.get("name") or "").lower()
+        size = int(file_info.get("size", 0) or 0)
+
         try:
-            result["preview"] = file_bytes.read().decode("utf-8", errors="ignore")[:5000]
-        except Exception:
-            result["preview"] = "[Binary file — no preview available]"
+            if name.endswith(".txt") and size < 1_000_000:  # <1 MB
+                result["preview"] = file_bytes.decode("utf-8", errors="ignore")[:5000]
+
+            elif name.endswith(".pdf") and size < MAX_PDF_SIZE:
+                text_parts = []
+                with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+                    for page in doc:
+                        text = page.get_text("text")
+                        if text.strip():
+                            text_parts.append(text)
+                result["preview"] = "\n".join(text_parts)[:5000] if text_parts else "⚠️ No extractable text in PDF."
+        except Exception as e:
+            result["preview"] = f"⚠️ Preview failed: {e}"
 
     return json.dumps(result, indent=2)
 
 
+@mcp.tool(name="box_download_file")
+def box_download_file(metadata: Dict, file_id: str) -> str:
+    """
+    Download file bytes directly from Box and return base64 (safe for transport).
+    """
+    import base64
+
+    creds = get_box_creds(metadata)
+    if not creds:
+        return "❌ Box credentials missing or invalid."
+    access_token = creds["access_token"]
+
+    url = f"https://api.box.com/2.0/files/{file_id}/content"
+    resp = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, allow_redirects=True)
+    if resp.status_code != 200:
+        return f"❌ Download failed: {resp.text}"
+
+    # Return as base64 (instead of a CDN link)
+    return json.dumps({
+        "file_id": file_id,
+        "size": len(resp.content),
+        "base64": base64.b64encode(resp.content).decode("utf-8")[:5000] + "...(truncated)"
+    }, indent=2)
 
 
 
