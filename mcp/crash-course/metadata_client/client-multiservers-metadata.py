@@ -14,12 +14,14 @@ from dotenv import load_dotenv
 import time
 
 
-load_dotenv("C:\\Users\\himanshu_punetha\\Documents\\ai-cookbook\\.env")
+load_dotenv("")
 
 
 # os.environ["OPENAI_API_KEY"] = "lm-studio"
 # os.environ["OPENAI_API_BASE"] = "http://192.168.29.53:1234/v1"  # Adjust if needed
-# os.environ["OPENAI_API_KEY"] = ""
+
+with open("./mcp/crash-course/metadata_client/key.json", "r") as fl:
+    os.environ["OPENAI_API_KEY"] = json.load(fl).get("key")
 
 nest_asyncio.apply()  # Needed to run interactive python
 print(os.environ["OPENAI_API_KEY"])

@@ -3,6 +3,7 @@ token.json
 credentials_user.json
 metadata.json
 *.json
+key.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
