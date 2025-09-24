@@ -24,7 +24,7 @@ with open("./mcp/crash-course/metadata_client/key.json", "r") as fl:
     os.environ["OPENAI_API_KEY"] = json.load(fl).get("key")
 
 nest_asyncio.apply()  # Needed to run interactive python
-print(os.environ["OPENAI_API_KEY"])
+# print(os.environ["OPENAI_API_KEY"])
 
 
 class MCPOpenAIClient:
@@ -55,7 +55,7 @@ class MCPOpenAIClient:
             #"onedrive": "http://localhost:8056/sse",
             #"onedrive-business_sharepoint": "http://localhost:8057/sse",
             #"onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
-            "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
+            # "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
             # "jira": "http://localhost:8002/mcp-server/sse/",
             #"gitlab": "http://localhost:8017/mcp-server/sse/",
             #"github": "http://localhost:8010/mcp-server/sse/",
@@ -64,7 +64,7 @@ class MCPOpenAIClient:
             #"odata": "http://localhost:8016/mcp-server/sse/",
             #"asana": "http://localhost:8011/mcp-server/sse/",
             #"asana": "https://mcp.asana.com/sse",
-            # "youtrack": "http://localhost:8089/mcp-server/sse",
+            "youtrack": "http://localhost:8089/mcp-server/sse",
             #"salesforce": "http://localhost:8091/mcp-server/sse",
             #"confluence": "http://localhost:8071/mcp-server/sse",
             #"zoom": "http://localhost:8019/mcp-server/sse",
