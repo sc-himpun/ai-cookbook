@@ -296,13 +296,13 @@ def get_drive_service(metadata: Dict):
 
 
 @mcp.tool(name="gdrive_search_files")
-def gdrive_search_files(  # noqa: C901
+def gdrive_search_files(
     keyword: str,
     metadata: Dict = {},
-    search_type: str = "both",  # "filename", "content", or "both"
-    file_type: str = "text",  # "text" or "all"
-    path: str = "root",  # Folder name or "root"
-    depth: int = 2,  # Folder traversal depth
+    search_type: str = "both",
+    file_type: str = "text",
+    path: str = "root",
+    depth: int = 2,
 ) -> dict:
     """
     Search for files in Google Drive by filename and/or file content.
@@ -315,33 +315,25 @@ def gdrive_search_files(  # noqa: C901
     Args:
         keyword (str): Keyword to search for (case-insensitive).
         metadata (Dict, optional): OAuth credentials and user info for Google Drive.
-        search_type (str, optional): One of:
-            - `"filename"` → Search only by file/folder name.
-            - `"content"` → Search only within file contents.
-            - `"both"` (default) → Combine filename and content search.
-        file_type (str, optional): `"text"` (default) for text-like files (txt, csv, md, json, Google Docs),
-                                   or `"all"` for all file types.
-        path (str, optional): Folder name (case-insensitive) to search within, or `"root"` for the top level.
+        search_type (str, optional): "filename", "content", or "both".
+        file_type (str, optional): "text" for readable formats, "all" for any file type.
+        path (str, optional): Folder name (case-insensitive) or "root".
         depth (int, optional): Maximum folder traversal depth. Default is 2.
 
     Returns:
-        dict: A standardized `make_response` object with:
-            - success (bool): Whether the search executed successfully.
-            - tool (str): `"gdrive_search_files"`.
-            - message (str): Status message describing the search results.
-            - data (list[dict]): List of matching files, where each entry contains:
-                - id (str): Internal Google Drive file ID. For chaining only, not for UI.
-                - name (str): File name. Safe for UI display.
-                - url (str): Google Drive web URL. Safe for UI display.
+        dict: Standard MCP tool response:
+            - success (bool)
+            - action (str): "gdrive_search_files"
+            - message (str)
+            - data (list of dict):
+                Each dict contains:
+                    - id (str): Internal Google Drive file ID (tool chaining only)
+                    - name (str): File name (safe for UI)
+                    - url (str): Google Drive file URL (safe for UI)
 
     Notes:
-        - File `id` is required for chaining (e.g., fetch or download),
-          but must not be displayed in the user-facing UI.
+        - File `id` is for tool chaining only; UI should not display it.
         - Safe fields for UI: `name`, `url`.
-        - Content search is limited:
-            - Google Docs content is searchable via API queries.
-            - Other text-based files are read client-side.
-            - Binary formats (e.g., images, videos) are not searched.
     """
     creds = get_google_creds(metadata)
     if not creds:
@@ -351,82 +343,115 @@ def gdrive_search_files(  # noqa: C901
 
     service = build("drive", "v3", credentials=creds)
 
-    # Resolve folder path to folder ID
     try:
         folder_id = (
             resolve_drive_id_by_name(service, path, is_folder=True)
             if path != "root"
             else "root"
         )
-        # folder_id = resolve_folder_id_by_name(service, path) if path != "root" else "root"
     except FileNotFoundError as e:
         return make_response(False, "search_files", f"{str(e)}")
 
-    # Traverse target folder to get all files within depth
-    all_files = _gdrive_recursive_list(
-        service,
-        folder_id=folder_id,
-        current_depth=0,
-        max_depth=depth,
-        file_type=file_type,
-    )
-
+    all_files = _gdrive_recursive_list(service, folder_id, 0, depth, file_type)
     results = []
     seen_ids = set()
 
-    # Step 1: Match by filename
     if search_type in ["filename", "both"]:
-        for file in all_files:
-            if keyword.lower() in file["name"].lower():
-                results.append({"name": file["name"], "id": file["id"]})
+        _search_by_filename(all_files, keyword, results, seen_ids)
+
+    if search_type in ["content", "both"]:
+        _search_google_docs_content(service, all_files, keyword, results, seen_ids)
+        _search_client_side_content(service, all_files, keyword, results, seen_ids)
+
+    # Add URLs for each file
+    for f in results:
+        f["url"] = f"https://drive.google.com/file/d/{f['id']}/view"
+
+    return make_response(
+        True,
+        "gdrive_search_files",
+        (
+            f"Found {len(results)} matching files."
+            if results
+            else "No matching files found."
+        ),
+        results,
+    )
+
+
+def _search_by_filename(all_files: list, keyword: str, results: list, seen_ids: set):
+    """
+    Helper: append files whose names contain the keyword (case-insensitive).
+
+    Args:
+        all_files (list): List of file dicts from Google Drive API.
+        keyword (str): Search keyword.
+        results (list): Output list to append matched files (name + id).
+        seen_ids (set): Set of already added file IDs to prevent duplicates.
+    """
+    for file in all_files:
+        if keyword.lower() in file["name"].lower():
+            results.append({"id": file["id"], "name": file["name"]})
+            seen_ids.add(file["id"])
+
+
+def _search_google_docs_content(
+    service, all_files: list, keyword: str, results: list, seen_ids: set
+):
+    """
+    Helper: append Google Docs files whose content contains the keyword via Drive fullText query.
+
+    Args:
+        service: Authenticated Google Drive service object.
+        all_files (list): List of file dicts from Google Drive API.
+        keyword (str): Search keyword.
+        results (list): Output list to append matched files.
+        seen_ids (set): Set of already added file IDs to prevent duplicates.
+    """
+    for file in all_files:
+        if (
+            file["id"] in seen_ids
+            or file["mimeType"] != "application/vnd.google-apps.document"
+        ):
+            continue
+        try:
+            query = f"fullText contains '{keyword}' and trashed = false and mimeType = 'application/vnd.google-apps.document'"
+            doc_match = (
+                service.files()
+                .list(q=query, fields="files(id)", pageSize=100)
+                .execute()
+            )
+            doc_ids = {f["id"] for f in doc_match.get("files", [])}
+            if file["id"] in doc_ids:
+                results.append({"id": file["id"], "name": file["name"]})
                 seen_ids.add(file["id"])
+        except Exception:
+            continue
 
-    # Step 2: Google Docs content search (via Drive query API)
-    if search_type in ["content", "both"]:
-        for file in all_files:
-            if file["id"] in seen_ids:
-                continue
-            if file["mimeType"] == "application/vnd.google-apps.document":
-                # Let Google Drive search inside Google Docs using fullText
-                try:
-                    query = f"fullText contains '{keyword}' and trashed = false and mimeType = 'application/vnd.google-apps.document'"
-                    doc_match = (
-                        service.files()
-                        .list(q=query, fields="files(id)", pageSize=100)
-                        .execute()
-                    )
-                    doc_ids = {f["id"] for f in doc_match.get("files", [])}
-                    if file["id"] in doc_ids:
-                        results.append({"name": file["name"], "id": file["id"]})
-                        seen_ids.add(file["id"])
-                except Exception:
-                    continue
 
-    # Step 3: Client-side scan for text content
-    if search_type in ["content", "both"]:
-        for file in all_files:
-            if file["id"] in seen_ids:
-                continue
-            try:
-                content = gdrive_download_file_content(service, file["id"])
-                if keyword.lower() in content.lower():
-                    results.append({"name": file["name"], "id": file["id"]})
-                    seen_ids.add(file["id"])
-            except Exception:
-                continue  # unreadable
+def _search_client_side_content(
+    service, all_files: list, keyword: str, results: list, seen_ids: set
+):
+    """
+    Helper: append text-like files whose content contains the keyword.
 
-    # return json.dumps(results) if results else "No matching files found."
-    if results:
-        return make_response(
-            True,
-            "gdrive_search_files",
-            f"Found {len(results)} matching files.",
-            results,
-        )
-    else:
-        return make_response(
-            True, "gdrive_search_files", "No matching files found.", []
-        )
+    Args:
+        service: Authenticated Google Drive service object.
+        all_files (list): List of file dicts from Google Drive API.
+        keyword (str): Search keyword.
+        results (list): Output list to append matched files.
+        seen_ids (set): Set of already added file IDs to prevent duplicates.
+    """
+    for file in all_files:
+        if file["id"] in seen_ids:
+            continue
+        try:
+            content = gdrive_download_file_content(service, file["id"])
+            if keyword.lower() in content.lower():
+                results.append({"id": file["id"], "name": file["name"]})
+                seen_ids.add(file["id"])
+        except Exception:
+            continue
 
 
 def resolve_drive_id_by_name(
