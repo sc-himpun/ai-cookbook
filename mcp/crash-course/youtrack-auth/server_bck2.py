@@ -11,7 +11,6 @@ from starlette.responses import JSONResponse, RedirectResponse
 from starlette.requests import Request
 from requests.auth import HTTPBasicAuth
 import urllib.parse
-from datetime import datetime, timedelta
 
 # ─── Config ──────────────────────────────────────────────────────
 load_dotenv()
@@ -139,6 +138,29 @@ def _generate_youtrack_auth_url(base_url: str) -> str:
 #     return _generate_youtrack_auth_url(metadata["url"])
 
 
+# @mcp.tool(name="youtrack_list_open_issues")
+# def list_open_issues(metadata: dict) -> dict:
+#     """List open issues , including clickable issue URLs."""
+#     creds = get_youtrack_creds(metadata)
+#     query = "State: {Unresolved}"
+#     url = f"{creds['url']}/api/issues?query={query}&fields=idReadable,summary"
+
+#     r = requests.get(url, headers=creds["headers"])
+#     if r.status_code == 200:
+#         issues = r.json()
+#         results = []
+#         for issue in issues:
+#             issue_id = issue.get("idReadable")
+#             results.append({
+#                 "id": issue_id,
+#                 "summary": issue.get("summary"),
+#                 "url": f"{creds['url']}/issue/{issue_id}"
+#             })
+#         return {"issues": results}
+
+#     return {"error": f"Failed to fetch issues: {r.text}"}
+
+
 def extract_state(issue: dict) -> Optional[str]:
     """Get the issue state from either top-level 'state' or inside 'fields'."""
     # 1. Try top-level state
@@ -165,78 +187,7 @@ def list_issues(
     text: str = "",
     updated_since: str = ""
 ) -> dict:
-    """
-    List issues from YouTrack with flexible filtering options such as assignee, state,
-    project, text search, and update timestamp.
-
-    Parameters:
-    -----------
-    metadata : dict
-        Dictionary containing YouTrack credentials and access info. This is typically provided
-        by the MCP server environment.
-
-    assignee : str, optional, default="me"
-        Filter issues by assignee. Acceptable values:
-        - "me": issues assigned to the authenticated user
-        - "all": issues assigned to all users (no assignee filter applied)
-        - "<user_id>": issues assigned to a specific user (YouTrack username/login, usually firstname.lastname)
-
-    state : str, optional, default="unresolved"
-        Filter issues by workflow state. Supported values:
-        - "unresolved" → `State: {Unresolved}`
-        - "open"       → `State: {Open}`
-        - "resolved"   → `State: {Resolved}`
-        - "in progress"→ `State: {In Progress}`
-        - Any other string is passed directly as a state filter.
-
-    project : str, optional, default=""
-        Limit results to a specific project by project key.
-
-    text : str, optional, default=""
-        Free-text search within issues (summary, description, comments).
-
-    updated_since : str, optional, default=""
-        Only include issues updated since the given timestamp.
-        Example: "2025-01-01" or "2w" (for two weeks ago).
-
-    Returns:
-    --------
-    dict
-        A structured dictionary with the following fields:
-        {
-            "success": bool,          # True if the request succeeded
-            "action": str,            # Action name ("list_issues")
-            "message": str,           # Human-readable summary
-            "data": list[dict]        # List of issues with:
-                {
-                    "id": str,       # YouTrack issue ID (readable format)
-                    "summary": str,  # Issue title/summary
-                    "state": str,    # Normalized issue state
-                    "url": str       # Direct URL to the issue
-                }
-        }
-
-    Notes:
-    ------
-    - This tool is versatile: it can list issues for a single user, all users, or the current user.
-    - It supports combining multiple filters (assignee + project + state + text).
-    - Uses YouTrack's standard search query syntax internally.
-    - The `state` parameter is normalized using common mappings (Unresolved, Open, Resolved, In Progress).
-
-    Examples:
-    ---------
-    # List unresolved issues assigned to me
-    youtrack_list_issues(metadata=my_metadata)
-
-    # List resolved issues for a specific user
-    youtrack_list_issues(metadata=my_metadata, assignee="jane.doe", state="resolved")
-
-    # List all open issues across all projects
-    youtrack_list_issues(metadata=my_metadata, assignee="all", state="open")
-
-    # List issues in project "ABC" updated in the last 2 weeks
-    youtrack_list_issues(metadata=my_metadata, project="ABC", updated_since="2w")
-    """
+    """List issues from YouTrack with optional filters, including normalized state."""
 
     creds = get_youtrack_creds(metadata)
 
@@ -290,82 +241,82 @@ def list_issues(
     }
 
 
-# @mcp.tool(name="youtrack_list_my_issues")
-# def youtrack_list_my_issues(metadata: dict) -> dict:
-#     """List unresolved issues assigned to the authenticated user, including URLs and state."""
+@mcp.tool(name="youtrack_list_my_issues")
+def youtrack_list_my_issues(metadata: dict) -> dict:
+    """List unresolved issues assigned to the authenticated user, including URLs and state."""
 
-#     creds = get_youtrack_creds(metadata)
-#     query = "Assignee: {me} State: {Unresolved}"
+    creds = get_youtrack_creds(metadata)
+    query = "Assignee: {me} State: {Unresolved}"
 
-#     # Expand fields to get State field value
-#     url = f"{creds['url']}/api/issues?query={query}&fields=idReadable,summary,fields(name,value(name))"
-#     r = requests.get(url, headers=creds["headers"])
+    # Expand fields to get State field value
+    url = f"{creds['url']}/api/issues?query={query}&fields=idReadable,summary,fields(name,value(name))"
+    r = requests.get(url, headers=creds["headers"])
 
-#     if r.status_code == 200:
-#         issues = r.json()
-#         results = []
+    if r.status_code == 200:
+        issues = r.json()
+        results = []
 
-#         for issue in issues:
-#             state = None
-#             for f in issue.get("fields", []):
-#                 if f.get("name") == "State" and f.get("value"):
-#                     state = f["value"].get("name")
-#                     break
+        for issue in issues:
+            state = None
+            for f in issue.get("fields", []):
+                if f.get("name") == "State" and f.get("value"):
+                    state = f["value"].get("name")
+                    break
 
-#             results.append({
-#                 "id": issue.get("idReadable"),
-#                 "summary": issue.get("summary"),
-#                 "state": state,
-#                 "url": f"{creds['url']}/issue/{issue.get('idReadable')}"
-#             })
+            results.append({
+                "id": issue.get("idReadable"),
+                "summary": issue.get("summary"),
+                "state": state,
+                "url": f"{creds['url']}/issue/{issue.get('idReadable')}"
+            })
 
-#         return {
-#             "success": True,
-#             "action": "list_my_issues",
-#             "message": f"Retrieved {len(results)} unresolved issues assigned to me",
-#             "data": results
-#         }
+        return {
+            "success": True,
+            "action": "list_my_issues",
+            "message": f"Retrieved {len(results)} unresolved issues assigned to me",
+            "data": results
+        }
 
-#     return {
-#         "success": False,
-#         "action": "list_my_issues",
-#         "message": "Failed to fetch my unresolved issues",
-#         "data": {"error": r.text}
-#     }
+    return {
+        "success": False,
+        "action": "list_my_issues",
+        "message": "Failed to fetch my unresolved issues",
+        "data": {"error": r.text}
+    }
 
 
-# @mcp.tool(name="youtrack_list_my_inprogress")
-# def youtrack_list_my_inprogress(metadata: dict) -> dict:
-#     """List tickets assigned to me that are in progress, including URLs and state."""
-#     creds = get_youtrack_creds(metadata)
-#     query = "Assignee: {me} State: {In Progress}"
-#     url = f"{creds['url']}/api/issues?query={query}&fields=idReadable,summary,fields(name,value(name))"
-#     r = requests.get(url, headers=creds["headers"])
+@mcp.tool(name="youtrack_list_my_inprogress")
+def youtrack_list_my_inprogress(metadata: dict) -> dict:
+    """List tickets assigned to me that are in progress, including URLs and state."""
+    creds = get_youtrack_creds(metadata)
+    query = "Assignee: {me} State: {In Progress}"
+    url = f"{creds['url']}/api/issues?query={query}&fields=idReadable,summary,fields(name,value(name))"
+    r = requests.get(url, headers=creds["headers"])
 
-#     if r.status_code != 200:
-#         return {
-#             "success": False,
-#             "action": "list_my_inprogress",
-#             "message": "Failed to fetch my in-progress issues",
-#             "data": {"error": r.text}
-#         }
+    if r.status_code != 200:
+        return {
+            "success": False,
+            "action": "list_my_inprogress",
+            "message": "Failed to fetch my in-progress issues",
+            "data": {"error": r.text}
+        }
 
-#     results = [
-#         {
-#             "id": issue.get("idReadable"),
-#             "summary": issue.get("summary"),
-#             "state": extract_state(issue),
-#             "url": f"{creds['url']}/issue/{issue.get('idReadable')}"
-#         }
-#         for issue in r.json()
-#     ]
+    results = [
+        {
+            "id": issue.get("idReadable"),
+            "summary": issue.get("summary"),
+            "state": extract_state(issue),
+            "url": f"{creds['url']}/issue/{issue.get('idReadable')}"
+        }
+        for issue in r.json()
+    ]
 
-#     return {
-#         "success": True,
-#         "action": "list_my_inprogress",
-#         "message": f"Retrieved {len(results)} in-progress issues",
-#         "data": results
-#     }
+    return {
+        "success": True,
+        "action": "list_my_inprogress",
+        "message": f"Retrieved {len(results)} in-progress issues",
+        "data": results
+    }
 
 
 @mcp.tool(name="youtrack_list_my_reported")
@@ -403,58 +354,10 @@ def youtrack_list_my_reported(metadata: dict) -> dict:
 
 
 @mcp.tool(name="youtrack_list_my_recent")
-def youtrack_list_my_recent(metadata: dict, days: int = 7) -> dict:
-    """
-    List issues assigned to the authenticated user that were updated within the last N days.
-
-    Parameters
-    ----------
-    metadata : dict
-        Dictionary containing YouTrack credentials and access info.
-        This is typically provided automatically by the MCP server environment.
-    days : int, optional, default=7
-        Number of days to look back when filtering issues by update time.
-        Example:
-        - days=7 → issues updated since 7 days ago
-        - days=1 → issues updated since yesterday
-        - days=30 → issues updated since the last 30 days
-
-    Returns
-    -------
-    dict
-        {
-            "success": bool,
-            "action": "list_my_recent",
-            "message": str,    # Summary of retrieved issues
-            "data": list[dict] # Issues with id, summary, state, updated, url
-        }
-
-    Notes
-    -----
-    - Uses YouTrack REST API with a query like:
-        `Assignee: me Updated: {2025-09-15}`
-    - The cutoff date is calculated in Python as (today - days).
-    - `Updated: {YYYY-MM-DD}` means "issues updated on or after this date".
-
-    Examples
-    --------
-    # Issues updated in the last 7 days
-    youtrack_list_my_recent(metadata=my_metadata)
-
-    # Issues updated in the last 3 days
-    youtrack_list_my_recent(metadata=my_metadata, days=3)
-
-    # Issues updated in the last 14 days
-    youtrack_list_my_recent(metadata=my_metadata, days=14)
-    """
+def youtrack_list_my_recent(metadata: dict) -> dict:
+    """List issues assigned to me updated in the last 7 days, including URLs and state."""
     creds = get_youtrack_creds(metadata)
-
-    # Compute cutoff date in YYYY-MM-DD format
-    cutoff_date = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
-
-    # YouTrack query: updated on or after cutoff_date
-    query = f"Assignee: me Updated: {{{cutoff_date}}} .. Today"
-
+    query = "Assignee: {me} updated: {last 7 days}"
     url = f"{creds['url']}/api/issues?query={query}&fields=idReadable,summary,updated,fields(name,value(name))"
     r = requests.get(url, headers=creds["headers"])
 
@@ -480,7 +383,42 @@ def youtrack_list_my_recent(metadata: dict, days: int = 7) -> dict:
     return {
         "success": True,
         "action": "list_my_recent",
-        "message": f"Retrieved {len(results)} issues updated in the last {days} days",
+        "message": f"Retrieved {len(results)} issues updated in the last 7 days",
+        "data": results
+    }
+
+
+@mcp.tool(name="youtrack_list_my_closed")
+def youtrack_list_my_closed(metadata: dict) -> dict:
+    """List closed/resolved issues assigned to me, including URLs and state."""
+    creds = get_youtrack_creds(metadata)
+    query = "Assignee: {me} State: {Resolved}"
+    url = f"{creds['url']}/api/issues?query={query}&fields=idReadable,summary,fields(name,value(name)),resolved"
+    r = requests.get(url, headers=creds["headers"])
+
+    if r.status_code != 200:
+        return {
+            "success": False,
+            "action": "list_my_closed",
+            "message": "Failed to fetch my closed issues",
+            "data": {"error": r.text}
+        }
+
+    results = [
+        {
+            "id": issue.get("idReadable"),
+            "summary": issue.get("summary"),
+            "state": extract_state(issue),
+            "resolved": issue.get("resolved"),
+            "url": f"{creds['url']}/issue/{issue.get('idReadable')}"
+        }
+        for issue in r.json()
+    ]
+
+    return {
+        "success": True,
+        "action": "list_my_closed",
+        "message": f"Retrieved {len(results)} closed issues",
         "data": results
     }
 
@@ -611,93 +549,36 @@ def youtrack_get_comments(metadata: dict, issue_id: str) -> dict:
     }
 
 
-@mcp.tool(name="youtrack_list_closed_issues_by_user")
-def youtrack_list_closed_issues_by_user(metadata: dict, user: str = "me") -> dict:
-    """
-    List closed/resolved issues in YouTrack for a specific user, the current user, or all users.
-
-    Parameters:
-    -----------
-    metadata : dict
-        Dictionary containing YouTrack credentials and access info. This is typically provided
-        by the MCP server environment.
-    user : str, optional, default="me"
-        The target user for filtering issues. Acceptable values:
-        - "me": issues assigned to the authenticated user
-        - "all": issues assigned to all users (no assignee filter)
-        - "<user_id>": specific user's user_id in YouTrack (firstname.lastname in lowercase or part before @ in email)
-
-    Returns:
-    --------
-    dict
-        A dictionary with the following structure:
-        {
-            "success": bool,          # True if the request succeeded
-            "action": str,            # Name of the action/tool
-            "message": str,           # Human-readable summary
-            "data": list[dict]        # List of issues, each with:
-                {
-                    "id": str,       # YouTrack issue IDReadable
-                    "summary": str,  # Issue summary/title
-                    "state": str,    # Issue state (Resolved/Closed)
-                    "resolved": str, # Timestamp when issue was resolved (if available)
-                    "url": str       # Direct URL to the issue in YouTrack
-                }
-        }
-
-    Notes:
-    ------
-    - The tool queries YouTrack using the standard REST API.
-    - Uses the 'State: {Resolved}' filter to select only closed/resolved issues.
-    - Automatically normalizes the issue state using YouTrack's 'fields' or top-level 'state'.
-    - Useful for generating reports, dashboards, or LLM-assisted querying.
-
-    Examples:
-    ---------
-    # Closed issues assigned to me
-    youtrack_list_closed_issues_by_user(metadata=my_metadata, user="me")
-
-    # Closed issues for all users
-    youtrack_list_closed_issues_by_user(metadata=my_metadata, user="all")
-
-    # Closed issues for a specific user
-    youtrack_list_closed_issues_by_user(metadata=my_metadata, user="jane.doe")
-    """
-
+@mcp.tool(name="youtrack_list_closed_issues")
+def youtrack_list_closed_issues(metadata: dict) -> dict:
+    """List closed/resolved issues with URLs and normalized state."""
     creds = get_youtrack_creds(metadata)
-    query_parts = ["State: {Resolved}"]
-
-    if user.lower() != "all":
-        query_parts.append(f"Assignee: {user}")
-
-    query = " ".join(query_parts)
-    url = f"{creds['url']}/api/issues?query={query}&fields=idReadable,summary,fields(name,value(name)),resolved"
+    query = "State: {Resolved}"
+    url = f"{creds['url']}/api/issues?query={query}&fields=idReadable,summary,fields(name,value(name))"
     r = requests.get(url, headers=creds["headers"])
 
-    if r.status_code != 200:
+    if r.status_code == 200:
+        issues = [
+            {
+                "id": issue.get("idReadable"),
+                "summary": issue.get("summary"),
+                "state": extract_state(issue),
+                "url": f"{creds['url']}/issue/{issue.get('idReadable')}"
+            }
+            for issue in r.json()
+        ]
         return {
-            "success": False,
-            "action": "list_closed_issues_by_user",
-            "message": "Failed to fetch closed issues",
-            "data": {"error": r.text}
+            "success": True,
+            "action": "list_closed_issues",
+            "message": f"Retrieved {len(issues)} closed issues",
+            "data": issues
         }
-
-    results = [
-        {
-            "id": issue.get("idReadable"),
-            "summary": issue.get("summary"),
-            "state": extract_state(issue),
-            "resolved": issue.get("resolved"),
-            "url": f"{creds['url']}/issue/{issue.get('idReadable')}"
-        }
-        for issue in r.json()
-    ]
 
     return {
-        "success": True,
-        "action": "list_closed_issues_by_user",
-        "message": f"Retrieved {len(results)} closed issues",
-        "data": results
+        "success": False,
+        "action": "list_closed_issues",
+        "message": "Failed to fetch closed issues",
+        "data": {"error": r.text}
     }
 
 

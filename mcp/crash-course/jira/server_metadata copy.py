@@ -76,82 +76,88 @@ def get_jira_creds(metadata: Optional[Dict]) -> Optional[Dict]:
     """
     Extract Jira credentials from metadata and refresh if access token is expired.
 
-    Args:
-        metadata (Optional[Dict]): Metadata dict or metadata["jira"] containing required fields.
-
     Returns:
-        Optional[Dict]: Dict with access_token, refresh_token, cloud_id, and email; refreshed if needed.
+        Optional[Dict]: Dict with email, access_token, refresh_token, cloud_id, and account_id.
     """
     if not metadata:
         return None
 
     creds = metadata.get("jira", metadata)
-
     email = creds.get("email")
     access_token = creds.get("access_token")
-    # Normalize blank to None
     refresh_token = creds.get("refresh_token") or None
     cloud_id = creds.get("cloud_id")
 
     if not email or not access_token:
         return None
 
-    if is_access_token_valid(access_token):
-        if not cloud_id:
-            try:
-                cloud_id = get_cloud_id_from_token(access_token)
-            except Exception:
+    def fetch_account_id_and_cloud(access_token: str) -> Optional[Dict]:
+        """Helper to fetch cloud_id and account_id from Jira APIs."""
+        try:
+            # Cloud ID
+            if not cloud_id:
+                cid = get_cloud_id_from_token(access_token)
+            else:
+                cid = cloud_id
+
+            # Account ID
+            myself_url = f"https://api.atlassian.com/ex/jira/{cid}/rest/api/3/myself"
+            headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+            myself = requests.get(myself_url, headers=headers).json()
+            account_id = myself.get("accountId")
+
+            if not account_id:
                 return None
+
+            return {"cloud_id": cid, "account_id": account_id}
+        except Exception as e:
+            print(f"[get_jira_creds] Failed fetching account/cloud id: {e}")
+            return None
+
+    # ✅ If token still valid
+    if is_access_token_valid(access_token):
+        ids = fetch_account_id_and_cloud(access_token)
+        if not ids:
+            return None
         return {
             "email": email,
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "cloud_id": cloud_id
+            "cloud_id": ids["cloud_id"],
+            "account_id": ids["account_id"]
         }
 
+    # 🔄 Refresh flow
     if refresh_token:
         print("🔁 Access token expired, attempting refresh...")
         new_tokens = refresh_jira_token(refresh_token)
         if new_tokens and "access_token" in new_tokens:
             access_token = new_tokens["access_token"]
             refresh_token = new_tokens.get("refresh_token", refresh_token)
-            try:
-                cloud_id = get_cloud_id_from_token(access_token)
-            except Exception:
+            ids = fetch_account_id_and_cloud(access_token)
+            if not ids:
                 return None
             return {
                 "email": email,
                 "access_token": access_token,
                 "refresh_token": refresh_token,
-                "cloud_id": cloud_id
+                "cloud_id": ids["cloud_id"],
+                "account_id": ids["account_id"]
             }
 
-    # If no valid access token and can't refresh, return None
     return None
 
 
-@mcp.tool(name="jira_search_issues")
-def search_issues(
-    metadata: Dict,
-    jql: str,
-    max_results: int = 5,
-    next_page_token: str = None,
-    reconcile_issues: bool = False,
-    fields: str = None,
-):
+@mcp.tool(name="jira_list_projects")
+def list_projects(metadata: Dict) -> str:
     """
-    Search Jira issues using JQL enhanced search (new /search/jql API).
+    List Jira projects available to the authenticated user.
 
     Args:
         metadata (Dict): Metadata containing Jira credentials under 'jira' key.
-        jql (str): Jira Query Language (JQL) string to search issues.
-        max_results (int): Maximum number of results to fetch.
-        next_page_token (str): Token for fetching the next page (if paginated).
-        reconcile_issues (bool): Whether to enforce read-after-write consistency.
-        fields (str): Comma-separated list of fields to return.
 
     Returns:
-        str: Matching issue keys and summaries, or error message.
+        str: A list of project keys and names, or an error message.
     """
     creds = get_jira_creds(metadata)
     if not creds:
@@ -159,34 +165,49 @@ def search_issues(
     access_token = creds["access_token"]
     cloud_id = creds["cloud_id"]
 
-    url = f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/search/jql"
+    url = f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/project/search"
     headers = {
         "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json",
+        "Accept": "application/json"
     }
 
-    params = {
-        "jql": jql,
-        "maxResults": max_results,
-    }
-    if next_page_token:
-        params["nextPageToken"] = next_page_token
-    if reconcile_issues:
-        params["reconcileIssues"] = "true"
-    if fields:
-        params["fields"] = fields
+    resp = requests.get(url, headers=headers).json()
 
-    resp = requests.get(url, headers=headers, params=params)
-    if resp.status_code != 200:
-        return f"❌ Jira API error {resp.status_code}: {resp.text}"
+    if "errorMessages" in resp:
+        return f"❌ Error: {resp['errorMessages']}"
 
-    data = resp.json()
-    issues = data.get("results", [])  # ✅ new key
+    projects = resp.get("values", [])
+    if not projects:
+        return "No projects found for this user."
+
+    return "\n".join(f"{p['key']}: {p['name']}" for p in projects)
+
+
+
+@mcp.tool(name="jira_search_issues")
+def search_issues(metadata: Dict, jql: str):
+    creds = get_jira_creds(metadata)
+    if not creds:
+        return "❌ Jira credentials not found in metadata."
+
+    access_token = creds["access_token"]
+    cloud_id = creds["cloud_id"]
+    account_id = creds["account_id"]
+
+    # 🪄 Replace currentUser() with accountId for reliability
+    if "currentUser()" in jql:
+        jql = jql.replace("currentUser()", f'"{account_id}"')
+
+    url = f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/search"
+    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    params = {"jql": jql, "maxResults": 5}
+    resp = requests.get(url, headers=headers, params=params).json()
+
+    issues = resp.get("issues", [])
     if not issues:
         return f"No matching issues found for JQL: {jql}"
 
-    return "\n".join(f"{i['key']}: {i.get('summary','(no summary)')}" for i in issues)
-
+    return "\n".join(f"{i['key']}: {i['fields']['summary']}" for i in issues)
 
 
 
@@ -385,39 +406,33 @@ def get_cloud_id_from_token(access_token: str) -> str:
     return resources[0]["id"]
 
 
-@mcp.tool(name="jira_list_projects")
-def list_projects(metadata: Dict) -> str:
-    """
-    List Jira projects available to the authenticated user.
+# @mcp.tool(name="jira_list_authorized_accounts")
+# def list_accounts(metadata: Dict = {}) -> str:
+#     """
+#     List all Jira accounts authorized via this MCP server.
+#     If user_tokens is empty, it checks metadata for Jira credentials and auto-registers the user.
 
-    Args:
-        metadata (Dict): Metadata containing Jira credentials under 'jira' key.
+#     Args:
+#         metadata (Dict): Optional metadata containing Jira tokens.
 
-    Returns:
-        str: A list of project keys and names, or an error message.
-    """
-    creds = get_jira_creds(metadata)
-    if not creds:
-        return "❌ Jira credentials not found in metadata."
-    access_token = creds["access_token"]
-    cloud_id = creds["cloud_id"]
+#     Returns:
+#         str: Email addresses of authorized users or message if none found.
+#     """
+#     global user_tokens
 
-    url = f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/project/search"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json"
-    }
+#     if not user_tokens:
+#         creds = get_jira_creds(metadata)
+#         if creds:
+#             user_tokens[creds["email"]] = {
+#                 "access_token": creds["access_token"],
+#                 "refresh_token": creds["refresh_token"],
+#                 "cloud_id": creds["cloud_id"]
+#             }
 
-    resp = requests.get(url, headers=headers).json()
+#     if not user_tokens:
+#         return "No accounts authorized yet."
 
-    if "errorMessages" in resp:
-        return f"❌ Error: {resp['errorMessages']}"
-
-    projects = resp.get("values", [])
-    if not projects:
-        return "No projects found for this user."
-
-    return "\n".join(f"{p['key']}: {p['name']}" for p in projects)
+#     return "\n".join(user_tokens.keys())
 
 
 # Auth Flow

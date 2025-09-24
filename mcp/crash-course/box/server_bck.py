@@ -87,29 +87,19 @@ def get_box_creds(metadata: Optional[Dict]) -> Optional[Dict]:
 def list_files(metadata: Dict, folder_id: str = "0"):
     """
     List files in a Box folder. Default is root ("0").
-    Only show name to the user, but include ID for LLM use.
     """
     creds = get_box_creds(metadata)
     if not creds:
-        return {"error": "❌ Box credentials missing or invalid."}
+        return "❌ Box credentials missing or invalid."
     access_token = creds["access_token"]
 
     url = f"https://api.box.com/2.0/folders/{folder_id}/items"
     resp = requests.get(url, headers={"Authorization": f"Bearer {access_token}"})
     if resp.status_code != 200:
-        return {"error": f"❌ Failed: {resp.text}"}
+        return f"❌ Failed: {resp.text}"
 
     items = resp.json().get("entries", [])
-    results = []
-    for i in items:
-        results.append({
-            "name": i["name"],     
-            "id": i["id"],         
-            "type": i["type"],
-        })
-
-    return {"files": results}
-
+    return "\n".join(f"{i['type']} - {i['name']} (id: {i['id']})" for i in items)
 
 @mcp.tool(name="box_get_file_info")
 def get_file_info(metadata: Dict, file_id: str):
@@ -146,14 +136,23 @@ def box_search_files(
     search_type: str = "both",   # "filename", "content", or "both"
     folder_id: str = "0",        # "0" = root
     limit: int = 25
-):
+) -> str:
     """
     Search files in Box by filename or content.
-    Only show name to the user, but include ID for LLM use.
+    
+    Args:
+        keyword: Keyword to search for (case-insensitive).
+        metadata: OAuth-authenticated Box credentials.
+        search_type: "filename", "content", or "both".
+        folder_id: Box folder ID to restrict search (default "0" = root).
+        limit: Number of results (default 25).
+    
+    Returns:
+        JSON list of matching files (name + ID), or message if none found.
     """
     creds = get_box_creds(metadata)
     if not creds:
-        return {"error": "❌ Box credentials missing or invalid."}
+        return "❌ Box credentials missing or invalid."
     access_token = creds["access_token"]
 
     # Map search_type → Box content_types
@@ -176,21 +175,14 @@ def box_search_files(
     url = "https://api.box.com/2.0/search"
     resp = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params)
     if resp.status_code != 200:
-        return {"error": f"❌ Search failed: {resp.text}"}
+        return f"❌ Search failed: {resp.text}"
 
     items = resp.json().get("entries", [])
     if not items:
-        return {"files": [], "message": "🔍 No matching files found."}
+        return "🔍 No matching files found."
 
-    results = []
-    for i in items:
-        results.append({
-            "name": i["name"],  
-            "id": i["id"],         
-            "type": i["type"]
-        })
-
-    return {"files": results}
+    results = [{"name": i["name"], "id": i["id"], "type": i["type"]} for i in items]
+    return json.dumps(results, indent=2)
 
 
 @mcp.tool(name="box_list_folders")

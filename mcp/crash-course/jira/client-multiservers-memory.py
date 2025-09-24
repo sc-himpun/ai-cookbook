@@ -225,7 +225,6 @@ class MCPOpenAIClient:
 # query = "change the state of SCRUM-12 to To-Do"
 # query = "show comments on SCRUM-12"
 
-
 async def main():
     client = MCPOpenAIClient()
     try:
