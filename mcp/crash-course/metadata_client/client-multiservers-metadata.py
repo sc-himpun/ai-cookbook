@@ -64,26 +64,27 @@ class MCPOpenAIClient:
             #"odata": "http://localhost:8016/mcp-server/sse/",
             #"asana": "http://localhost:8011/mcp-server/sse/",
             #"asana": "https://mcp.asana.com/sse",
-            "youtrack": "http://localhost:8089/mcp-server/sse",
+            # "youtrack": "http://localhost:8089/mcp-server/sse",
             #"salesforce": "http://localhost:8091/mcp-server/sse",
             #"confluence": "http://localhost:8071/mcp-server/sse",
             #"zoom": "http://localhost:8019/mcp-server/sse",
-            # "box": "http://localhost:8029/mcp-server/sse",
+            "box": "http://localhost:8029/mcp-server/sse",
             
             ################################################,
 
             # "gmail-gdrive": "http://10.1.1.22:8000/mcp-server/sse",
-            # "jira": "http://10.1.1.22:8002/mcp-server/sse",
+            # # "jira": "http://10.1.1.22:8002/mcp-server/sse",
             # "onedrive-business_sharepoint": "http://10.1.1.22:8007/mcp-server/sse",
             # "gitlab": "http://10.1.1.22:8017/mcp-server/sse",
             # "github": "http://10.1.1.22:8010/mcp-server/sse",
             # "youtrack": "http://10.1.1.22:8053/mcp-server/sse",
             # "s3": "http://10.1.1.22:8050/sse",
-            # "odata": "http://10.1.1.22:8016/mcp-server/sse",
+            # # "odata": "http://10.1.1.22:8016/mcp-server/sse",
             # "asana": "http://10.1.1.22:8011/mcp-server/sse",
-            # "salesforce": "http://10.1.1.22:8091/mcp-server/sse",
-            # "confluence": "http://10.1.1.22:8071/mcp-server/sse",
+            # # "salesforce": "http://10.1.1.22:8091/mcp-server/sse",
+            # # "confluence": "http://10.1.1.22:8071/mcp-server/sse",
             # "zoom": "http://10.1.1.22:8019/mcp-server/sse",
+            # "box": "http://10.1.1.22:8029/mcp-server/sse",
 
             
             }

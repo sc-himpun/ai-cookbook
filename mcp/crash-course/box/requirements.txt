@@ -1,5 +1,6 @@
 boxsdk==3.14.0
-fastmcp==2.9.0
+fastmcp==2.10.5
 fastmcp-http==0.1.4
-mcp[cli]
+mcp[cli]==1.13.1
+PyMuPDF==1.26.3
 requests==2.32.5

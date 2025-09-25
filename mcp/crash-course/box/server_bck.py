@@ -353,3 +353,35 @@ app = Starlette(routes=routes, lifespan=mcp_app.lifespan)
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
+
+
+# @mcp.tool(name="box_get_file_info")
+# def get_file_info(metadata: Dict, file_id: str):
+#     """Get metadata about a Box file."""
+#     creds = get_box_creds(metadata)
+#     if not creds:
+#         return "❌ Box credentials missing or invalid."
+#     access_token = creds["access_token"]
+
+#     url = f"https://api.box.com/2.0/files/{file_id}"
+#     resp = requests.get(url, headers={"Authorization": f"Bearer {access_token}"})
+#     return resp.json() if resp.status_code == 200 else f"❌ Failed: {resp.text}"
+
+
+# @mcp.tool(name="box_download_file")
+# def download_file(metadata: Dict, file_id: str):
+#     """Download a Box file (returns metadata + download URL)."""
+#     creds = get_box_creds(metadata)
+#     if not creds:
+#         return "❌ Box credentials missing or invalid."
+#     access_token = creds["access_token"]
+
+#     url = f"https://api.box.com/2.0/files/{file_id}/content"
+#     resp = requests.get(
+#         url, headers={"Authorization": f"Bearer {access_token}"}, allow_redirects=False
+#     )
+
+#     if resp.status_code in (302, 303):  # Redirect to actual download URL
+#         return {"download_url": resp.headers.get("Location")}
+#     return f"❌ Failed: {resp.text}"
