@@ -458,7 +458,7 @@ def resolve_drive_id_by_name(
     is_folder: bool = False,
     parent_id: Optional[str] = None,
     match_mode: str = "exact",  # "exact", "startswith", or "contains"
-    page_size: int = 1000
+    page_size: int = 1000,
 ) -> str:
     """
     Resolve a file or folder name to its Drive ID.
@@ -491,8 +491,7 @@ def resolve_drive_id_by_name(
 
     response = (
         service.files()
-        .list(q=query, spaces="drive", fields="files(id, name)",
-              pageSize=page_size)
+        .list(q=query, spaces="drive", fields="files(id, name)", pageSize=page_size)
         .execute()
     )
 
@@ -555,7 +554,7 @@ def gdrive_get_folder_id(name: str, metadata: Dict) -> dict:
         return make_response(False, "get_folder_id", f"{str(e)}")
 
 
-def gdrive_download_file_content(service, file_id: str) -> str:
+def gdrive_download_file_content(service, file_id: str) -> Dict:
     """
     Download and extract the textual content of a file from Google Drive.
 
@@ -564,7 +563,7 @@ def gdrive_download_file_content(service, file_id: str) -> str:
         file_id (str): The unique ID of the file to download.
 
     Returns:
-        str: Extracted text content from the file. Behavior varies by type:
+        dict: Extracted text content from the file. Behavior varies by type:
             - For PDFs ≤ MAX_PDF_SIZE (~400KB): Returns extracted text using PyMuPDF.
             - For PDFs > MAX_PDF_SIZE: Returns a JSON string containing a "delegate" instruction
               suggesting the use of `vector_ingest_gdrive` for embedding-based search.
@@ -599,18 +598,17 @@ def gdrive_download_file_content(service, file_id: str) -> str:
     # Step 3: Process based on type
     if mime_type == "application/pdf":
         if file_size > MAX_PDF_SIZE:
-            return json.dumps(
-                {
-                    "delegate": "vector_ingest_gdrive",
-                    "key": file_meta.get("name", "unknown"),
-                    "reason": (
-                        f"File size {file_size} exceeds threshold "
-                        "{file_size/1024:.1f} KB. "
-                        "Use 'vector_ingest_gdrive' for ingesting the chunks as embeddings "
-                        "and searching."
-                    ),
-                }
-            )
+            return {
+                "delegate": "vector_ingest_gdrive",
+                "key": file_meta.get("name", "unknown"),
+                "reason": (
+                    f"File size {file_size} exceeds threshold "
+                    "{file_size/1024:.1f} KB. "
+                    "Use 'vector_ingest_gdrive' for ingesting the chunks as embeddings "
+                    "and searching."
+                ),
+            }
+
         # Memory-efficient PyMuPDF extraction
         text_parts = []
         with fitz.open(stream=fh.read(), filetype="pdf") as doc:
@@ -620,14 +618,17 @@ def gdrive_download_file_content(service, file_id: str) -> str:
                 )  # type: ignore
                 if text.strip():
                     text_parts.append(text)
-        return (
-            "\n".join(text_parts)
-            if text_parts
-            else "⚠️ No extractable text found in PDF."
-        )
+        return {
+            "data": (
+                "\n".join(text_parts)
+                if text_parts
+                else "No extractable text found in PDF."
+            )
+        }
+
     else:
         # Assume text-like file (CSV, TXT, JSON, etc.)
-        return fh.read().decode("utf-8", errors="ignore")
+        return {"data": fh.read().decode("utf-8", errors="ignore")}
 
 
 @mcp.tool(name="gdrive_fetch_file")
