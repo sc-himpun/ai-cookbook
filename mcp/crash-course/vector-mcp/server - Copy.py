@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # flake8: noqa
 # -*- coding: utf-8 -*-
 # vector_mcp_server.py

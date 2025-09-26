@@ -8,7 +8,7 @@ repos:
         - "--max-complexity=18"
         - "--select=B,C,E,F,W,T4,B9"
         - "--ignore=E203,E266,E501,W503,F403,F401,E402"
-      exclude: ^app/core/model/notebooks
+      exclude: ^models/|.*_bck\.py$|.*_old\.py$|.*-Copy\.py$
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:
@@ -18,6 +18,7 @@ repos:
       entry: check-merge-conflict
       language: python
       types: [text]
+      exclude: ^models/|.*_bck\.py$|.*_old\.py$|.*-Copy\.py$
     - id: check-added-large-files
       name: check for added large files
       description: prevents giant files from being committed.
@@ -25,21 +26,25 @@ repos:
       args: [--maxkb=1000]
       language: python
       stages: [commit, push, manual]
+      exclude: ^models/|.*_bck\.py$|.*_old\.py$|.*-Copy\.py$
     - id: check-yaml
       name: check yaml
       description: checks yaml files for parseable syntax.
       entry: check-yaml
       language: python
       types: [yaml]
+      exclude: ^models/|.*_bck\.py$|.*_old\.py$|.*-Copy\.py$
     - id: fix-encoding-pragma
       name: fix python encoding pragma
       description: 'adds # -*- coding: utf-8 -*- to the top of python files.'
       language: python
       entry: fix-encoding-pragma
       types: [python]
+      exclude: ^models/|.*_bck\.py$|.*_old\.py$|.*-Copy\.py$
     - id: requirements-txt-fixer
       name: fix requirements.txt
       description: sorts entries in requirements.txt.
       entry: requirements-txt-fixer
       language: python
       files: (requirements|constraints).*\.txt$
+      exclude: ^models/|.*_bck\.py$|.*_old\.py$|.*-Copy\.py$
