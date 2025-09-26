@@ -38,8 +38,6 @@ PORT = int(os.getenv("GOOGLE_MCP_PORT", "8000"))  # Port for the FastMCP server
 REDIRECT_URI = os.getenv(
     "GOOGLE_MCP_REDIRECT_URI", f"http://localhost:{PORT}/oauth2callback"
 )
-# PORT=8000  # Port for the FastMCP server
-# REDIRECT_URI = f"http://localhost:{PORT}/oauth2callback"
 
 # ─── MCP Setup ───────────────────────────────────────────────────────────────
 mcp = FastMCP("gmail-mcp")
@@ -460,6 +458,7 @@ def resolve_drive_id_by_name(
     is_folder: bool = False,
     parent_id: Optional[str] = None,
     match_mode: str = "exact",  # "exact", "startswith", or "contains"
+    page_size: int = 1000
 ) -> str:
     """
     Resolve a file or folder name to its Drive ID.
@@ -470,6 +469,7 @@ def resolve_drive_id_by_name(
         is_folder (bool): Whether to look for folders only.
         parent_id (Optional[str]): Scope the search within a parent folder.
         match_mode (str): "exact", "startswith", or "contains".
+        page_size (int): 1000 is default value
 
     Returns:
         str: The ID of the first matching item.
@@ -491,7 +491,8 @@ def resolve_drive_id_by_name(
 
     response = (
         service.files()
-        .list(q=query, spaces="drive", fields="files(id, name)", pageSize=1000)
+        .list(q=query, spaces="drive", fields="files(id, name)",
+              pageSize=page_size)
         .execute()
     )
 
@@ -958,11 +959,6 @@ async def oauth2callback(request: Request):
             {"error": "Failed to get user email", "user_info": user_info},
             status_code=400,
         )
-
-    # user_tokens[email] = {
-    #     "access_token": access_token,
-    #     "refresh_token": refresh_token,
-    # }
 
     print(f"✅ Authenticated: {email}")
     return JSONResponse(
