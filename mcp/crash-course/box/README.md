@@ -2,21 +2,6 @@
 
 This project demonstrates how to run an MCP (Model Control Protocol) server using Docker. The server provides a simple calculator tool that can be accessed by a client.
 
-```mermaid
----
-config:
-  layout: fixed
-  theme: neo
----
-flowchart TD
-    A["Auriga UI"] -- query --> B["Auriga Backend (MCP Client)"]
-    B -- tool call --> C["MCP Server"]
-    C -- API call --> D("Gmail / Google Drive / S3 / YouTrack / OData / GitHub etc.")
-    D -- API response --> C
-    C -- tool response --> B
-    B -- final response --> A
-```
-
 ## Prerequisites
 
 - Docker installed on your system
@@ -29,20 +14,18 @@ flowchart TD
 - `Dockerfile`: Instructions for building the Docker image
 - `requirements.txt`: Python dependencies for the project
 
-
-
 ## Running with Docker
 
 ### Step 1: Build the Docker image
 
 ```bash
-docker build -t mcp-server-vector .
+docker build -t mcp-server-box .
 ```
 
 ### Step 2: Run the Docker container
 
 ```bash
-docker run  --env-file .env --network dbnetwork  --name mcp-server-vector -p 8060:8060  -d mcp-server-vector
+docker run  --env-file .env --network dbnetwork  --name mcp-server-box -p 8029:8029  -d mcp-server-box
 ```
 
 This will start the MCP server inside a Docker container and expose it on port 8050.
@@ -83,5 +66,5 @@ If you encounter connection issues:
 ## Notes
 
 - The server is configured to use SSE (Server-Sent Events) transport and listens on port 8050.
-- The client connects to the server at `http://localhost:8050/sse`.
+- The client connects to the server at `http://localhost:8051/sse`.
 - Make sure the server is running before starting the client. 

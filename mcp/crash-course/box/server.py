@@ -249,6 +249,7 @@ def box_search_files(
         - "filename": Matches against file names and descriptions.
         - "content": Matches inside file content.
         - "both": Searches both filenames/descriptions and file contents.
+        Note: Some box accounts like personal and business basic don't support content search.
     folder_id : str, default "0"
         ID of the parent folder to restrict the search within. "0" refers to the root folder.
     limit : int, default 25
@@ -283,7 +284,10 @@ def box_search_files(
     """
     creds = get_box_creds(metadata)
     if not creds:
-        return {"error": "❌ Box credentials missing or invalid."}
+        return make_response(
+            False, "box_search_files", "❌ Box credentials missing or invalid."
+        )
+
     access_token = creds["access_token"]
 
     # Map search_type → Box content_types
@@ -308,11 +312,14 @@ def box_search_files(
         url, headers={"Authorization": f"Bearer {access_token}"}, params=params
     )
     if resp.status_code != 200:
-        return {"error": f"❌ Search failed: {resp.text}"}
+        return make_response(
+            False, "box_search_files", f"❌ Search failed: {resp.text}"
+        )
 
     items = resp.json().get("entries", [])
-    if not items:
-        return {"files": [], "message": "🔍 No matching files found."}
+    message = ""
+    if search_type in ("content", "both") and not items:
+        message = "Content search may not be supported on this Box account or files are not yet indexed."
 
     results = []
     for i in items:
@@ -329,7 +336,7 @@ def box_search_files(
             }
         )
 
-    return {"files": results}
+    return make_response(True, "search_files", message or "Search completed.", results)
 
 
 @mcp.tool(name="box_list_folders")
@@ -503,13 +510,12 @@ def box_fetch_file(metadata: Dict, file_id: str, download: bool = False) -> Dict
     # 3. Extract preview
     if name.lower().endswith(".pdf"):
         if size > MAX_PDF_SIZE:
-            result["preview"] = json.dumps(
-                {
-                    "delegate": "vector_ingest_box",
-                    "key": name,
-                    "reason": f"File size {size/1024:.1f} KB exceeds threshold ({MAX_PDF_SIZE/1024} KB). Use 'vector_ingest_box'.",
-                }
-            )
+            result["message"] = {
+                "delegate": "vector_ingest_box",
+                "key": name,
+                "reason": f"File size {size/1024:.1f} KB exceeds threshold ({MAX_PDF_SIZE/1024} KB). Use 'vector_ingest_box' tool.",
+            }
+
         else:
             text_parts = []
             with fitz.open(stream=file_bytes.read(), filetype="pdf") as doc:

@@ -1,9 +1,7 @@
-boto3
-fastmcp
-fastmcp-http
-langchain
-langchain-community
-mcp[cli]
-openai
-PyMuPDF
-python-docx 
+boto3==1.40.27
+fastmcp==2.10.5
+fastmcp-http==0.1.4
+mcp[cli]==1.13.1
+PyMuPDF==1.26.4
+python-docx==1.2.0
+requests==2.32.5

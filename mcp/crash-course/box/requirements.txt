@@ -1,4 +1,3 @@
-boxsdk==3.14.0
 fastmcp==2.10.5
 fastmcp-http==0.1.4
 mcp[cli]==1.13.1

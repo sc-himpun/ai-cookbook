@@ -42,9 +42,9 @@ class MCPOpenAIClient:
 
     async def connect_to_servers(self):
         servers = {
-            #"s3": "http://localhost:8050/sse",
+            # "s3": "http://localhost:8050/sse",
             #"s3": "http://localhost:8059/sse",
-            #"vector": "http://localhost:8060/sse",
+            "vector": "http://localhost:8060/sse",
             #"gdrive": "http://localhost:8051/sse",
             #"github": "http://localhost:8052/sse",
             #"youtrack": "http://localhost:8053/sse",
