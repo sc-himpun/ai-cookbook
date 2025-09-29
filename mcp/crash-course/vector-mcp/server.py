@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-# vector_mcp_server.py
 from mcp.server.fastmcp import FastMCP
 from typing import Dict, List, Tuple, Iterable, Optional
-import io, hashlib, json, os, tempfile, shutil
+import hashlib
+import os
+import tempfile
 from google.oauth2.credentials import Credentials
 
 # Text extraction
@@ -16,7 +17,6 @@ import boto3
 from botocore.response import StreamingBody
 
 # Google Drive
-from google.oauth2.service_account import Credentials as GServiceAccountCreds
 from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.discovery import build
 
@@ -25,30 +25,31 @@ from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # OpenAI embeddings
-import openai
 import requests
-from openai import OpenAI
-from langchain_openai import OpenAIEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from dotenv import load_dotenv
+from huggingface_hub import login
 
 load_dotenv()
 GDRIVE_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
 GDRIVE_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
 
-openai.api_key = os.environ["OPENAI_API_KEY"]
-print(
-    "OpenAI API key set from environment", os.environ.get("OPENAI_API_KEY") is not None
-)
-# ────────────────────────────────────────────────────────────────────────────
 # MCP setup
 VECTOR_MCP_PORT = int(os.getenv("VECTOR_MCP_PORT", "8060"))
+EMBEDDING_PROVIDER = os.getenv("VECTORMCP_EMBEDDING_PROVIDER", "huggingface")
+EMBEDDING_MODEL = os.getenv(
+    "VECTORMCP_EMBEDDING_MODEL", "intfloat/multilingual-e5-small"
+)
+
 mcp = FastMCP(name="VectorToolkit", host="0.0.0.0", port=VECTOR_MCP_PORT)
+
+hf_token = os.getenv("HUGGINGFACE_HUB_TOKEN")
+login(hf_token)
 
 
 def get_embedding_backend(
-    provider: str = "huggingface", model_name: str = "intfloat/e5-base-v2"
+    provider: str = "huggingface", model_name: str = "intfloat/multilingual-e5-small"
 ):
     """
     Returns a LangChain-compatible embedding model.
@@ -58,18 +59,15 @@ def get_embedding_backend(
     if provider == "openai":
         return OpenAIEmbeddings(model=model_name or "text-embedding-3-small")
     elif provider == "huggingface":
+        print(f"Using HuggingFace embedding model: {model_name}")
         return HuggingFaceEmbeddings(
-            model_name=model_name or "intfloat/e5-base-v2",
+            model_name=model_name,
             model_kwargs={"device": "cpu"},  # or "cuda" for GPU
             encode_kwargs={"normalize_embeddings": True},
         )
     else:
         raise ValueError(f"Unsupported embedding provider: {provider}")
 
-
-EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "huggingface")
-# EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/e5-base-v2")
 
 embedding = get_embedding_backend(EMBEDDING_PROVIDER, EMBEDDING_MODEL)
 
@@ -90,7 +88,7 @@ def get_index() -> FAISS:
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Helpers: S3 & GDrive clients via metadata
+# Helpers: S3, GDrive, box etc clients via metadata
 
 
 def get_s3_client_and_bucket(metadata: Dict) -> Tuple[boto3.client, str]:
@@ -162,6 +160,50 @@ def get_google_creds(metadata: Optional[Dict]) -> Optional[Credentials]:
             return None
 
     return creds
+
+
+def get_drive_service(metadata: Dict):
+    """
+    Create a Google Drive API service using credentials from metadata.
+    """
+    creds = get_google_creds(metadata)
+    if not creds:
+        raise ValueError("Could not get valid Google credentials from metadata.")
+    return build("drive", "v3", credentials=creds)
+
+
+def get_box_file_to_tempfile(metadata: Dict, file_id: str) -> Tuple[str, dict]:
+    """
+    Download a Box file to a temp file using metadata access_token.
+    metadata = { "box": { "access_token": "..." } }
+    Returns: (tmp_path, file_metadata)
+    """
+    md = metadata.get("box") if metadata else None
+    if not md:
+        raise ValueError("Missing Box metadata")
+    token = md.get("access_token")
+    if not token:
+        raise ValueError("Missing Box access_token in metadata")
+
+    headers = {"Authorization": f"Bearer {token}"}
+    # First get metadata (name, size, etc.)
+    meta_url = f"https://api.box.com/2.0/files/{file_id}"
+    r = requests.get(meta_url, headers=headers)
+    r.raise_for_status()
+    file_meta = r.json()
+    file_name = file_meta.get("name", file_id)
+
+    # Download to temp file
+    url = f"https://api.box.com/2.0/files/{file_id}/content"
+    r = requests.get(url, headers=headers, stream=True)
+    r.raise_for_status()
+    tmp = tempfile.NamedTemporaryFile(delete=False)
+    for chunk in r.iter_content(chunk_size=1024 * 1024):
+        if chunk:
+            tmp.write(chunk)
+    tmp.flush()
+    tmp.close()
+    return tmp.name, {"file_name": file_name, **file_meta}
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -478,17 +520,7 @@ def vector_ingest_s3(
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Google Drive ingest (downloads to disk, then same streaming split/insert)
-
-
-def get_drive_service(metadata: Dict):
-    """
-    Create a Google Drive API service using credentials from metadata.
-    """
-    creds = get_google_creds(metadata)
-    if not creds:
-        raise ValueError("Could not get valid Google credentials from metadata.")
-    return build("drive", "v3", credentials=creds)
+# Google Drive ingest
 
 
 @mcp.tool(name="vector_ingest_gdrive")
@@ -498,6 +530,8 @@ def vector_ingest_gdrive(
     max_chunk_size: int = 1200,
     overlap: int = 200,
     embed_batch: int = 32,
+    file_name: Optional[str] = None,
+    url: Optional[str] = None,
 ) -> dict:
     max_chunk_size = int(max_chunk_size)
     overlap = int(overlap)
@@ -514,7 +548,7 @@ def vector_ingest_gdrive(
 
         # Get metadata (name & mime)
         meta = svc.files().get(fileId=file_id, fields="id,name,mimeType,size").execute()
-        file_name = meta.get("name", file_id)
+        file_name = meta.get("name", file_id) if not file_name else file_name
         mimeType = meta.get("mimeType", "")
         # Download to temp file
         request = svc.files().get_media(fileId=file_id)
@@ -543,6 +577,7 @@ def vector_ingest_gdrive(
             "provider": "gdrive",
             "mimeType": mimeType,
             "file_hash": file_hash,
+            "url": url or f"https://drive.google.com/file/d/{file_id}/view",
         }
 
         batch_texts: List[str] = []
@@ -638,43 +673,6 @@ def vector_ingest_gdrive(
         return {"status": "error", "message": str(e)}
 
 
-# Add box ingestion
-
-
-def get_box_file_to_tempfile(metadata: Dict, file_id: str) -> Tuple[str, dict]:
-    """
-    Download a Box file to a temp file using metadata access_token.
-    metadata = { "box": { "access_token": "..." } }
-    Returns: (tmp_path, file_metadata)
-    """
-    md = metadata.get("box") if metadata else None
-    if not md:
-        raise ValueError("Missing Box metadata")
-    token = md.get("access_token")
-    if not token:
-        raise ValueError("Missing Box access_token in metadata")
-
-    headers = {"Authorization": f"Bearer {token}"}
-    # First get metadata (name, size, etc.)
-    meta_url = f"https://api.box.com/2.0/files/{file_id}"
-    r = requests.get(meta_url, headers=headers)
-    r.raise_for_status()
-    file_meta = r.json()
-    file_name = file_meta.get("name", file_id)
-
-    # Download to temp file
-    url = f"https://api.box.com/2.0/files/{file_id}/content"
-    r = requests.get(url, headers=headers, stream=True)
-    r.raise_for_status()
-    tmp = tempfile.NamedTemporaryFile(delete=False)
-    for chunk in r.iter_content(chunk_size=1024 * 1024):
-        if chunk:
-            tmp.write(chunk)
-    tmp.flush()
-    tmp.close()
-    return tmp.name, {"file_name": file_name, **file_meta}
-
-
 # ────────────────────────────────────────────────────────────────────────────
 # Raw text ingest (already loaded externally)
 
@@ -738,6 +736,10 @@ def vector_ingest_text(
     return {"status": "ingested", "file_hash": file_hash, "chunks": total_chunks}
 
 
+# ────────────────────────────────────────────────────────────────────────────
+#  Box Ingestion
+
+
 @mcp.tool(name="vector_ingest_box")
 def vector_ingest_box(
     metadata: dict,
@@ -745,6 +747,7 @@ def vector_ingest_box(
     max_chunk_size: int = 1200,
     overlap: int = 200,
     embed_batch: int = 32,
+    url: Optional[str] = None,
 ) -> dict:
     """
     Ingest a single Box file into FAISS using streaming split/insert.
@@ -776,6 +779,7 @@ def vector_ingest_box(
             "box_id": file_id,
             "provider": "box",
             "file_hash": file_hash,
+            "url": url or f"https://app.box.com/file/{file_id}",
         }
 
         batch_texts: List[str] = []
@@ -873,21 +877,47 @@ def vector_ingest_box(
 
 
 @mcp.tool(name="vector_query")
-def vector_query(question: str, top_k: int = 3) -> str:
+def vector_query(question: str, top_k: int = 3) -> dict:
     """
     Semantic search over the in-memory FAISS index.
-    Returns the top_k matches with metadata and content snippets.
-    Uses top_k=3 as default.
+
+    Args:
+        question (str): Natural language query.
+        top_k (int, optional): Number of results to return (default: 3).
+
+    Returns:
+        dict: A structured response containing:
+            - results: list of matches, each with:
+                - text (str): Content snippet (up to 800 chars).
+                - metadata (dict): Original metadata from ingestion.
+                - source (str): File identifier or URL if available.
+            - total (int): Number of results returned.
     """
     idx = get_index()
     if getattr(idx, "index", None) is None or idx.index.ntotal == 0:
-        return json.dumps({"error": "index_empty"})
+        return {"error": "index_empty"}
 
     docs = idx.similarity_search(question, k=max(1, int(top_k)))
-    out = []
+    results = []
+
     for d in docs:
-        out.append({"text": (d.page_content or "")[:800], "metadata": d.metadata or {}})
-    return json.dumps(out)
+        meta = d.metadata or {}
+        source = (
+            meta.get("url") or meta.get("file_id") or meta.get("source") or "unknown"
+        )
+
+        results.append(
+            {
+                "text": (d.page_content or "")[:800],
+                "metadata": meta,
+                "source": source,
+            }
+        )
+
+    return {
+        "results": results,
+        "total": len(results),
+    }
 
 
 # ────────────────────────────────────────────────────────────────────────────
