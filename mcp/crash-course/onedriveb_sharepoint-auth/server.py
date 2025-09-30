@@ -2,31 +2,34 @@
 import os
 import json
 import asyncio
+import datetime
+import aiohttp
+from io import BytesIO
 from typing import Dict, Optional
 
-import datetime
+import nest_asyncio
+import requests
 from dotenv import load_dotenv
+from docx import Document
+import fitz  # PyMuPDF
+from azure.core.credentials import TokenCredential, AccessToken
+from azure.identity.aio import AuthorizationCodeCredential
+
 from fastmcp import FastMCP
 from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import RedirectResponse, JSONResponse
 from starlette.requests import Request
-from azure.core.credentials import TokenCredential, AccessToken
-import requests
-from azure.identity.aio import AuthorizationCodeCredential
 from msgraph import GraphServiceClient
 
-import nest_asyncio
 nest_asyncio.apply()
-
 load_dotenv()
 
 CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
 REDIRECT_URI = os.getenv("AZURE_REDIRECT_URI")
-PORT = int(os.getenv("AZURE_MCP_PORT", "8007")) 
-# PORT = 8007
+PORT = int(os.getenv("AZURE_MCP_PORT", "8007"))
 SCOPES = ["User.Read", "Files.Read", "Sites.Read.All", "offline_access"]
 
 AUTH_URL = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize"
@@ -37,7 +40,14 @@ graph_clients: Dict[str, GraphServiceClient] = {}
 
 mcp = FastMCP("onedrive-mcp")
 
+
 def build_auth_url() -> str:
+    """
+    Build the OAuth2 authorization URL for Microsoft login.
+
+    Returns:
+        str: The constructed authorization URL.
+    """
     return (
         f"{AUTH_URL}?client_id={CLIENT_ID}"
         f"&response_type=code"
@@ -47,52 +57,148 @@ def build_auth_url() -> str:
     )
 
 
-
 class ManualTokenCredential(TokenCredential):
     def __init__(self, access_token: str):
+        """
+        Initialize ManualTokenCredential with an access token.
+
+        Args:
+            access_token (str): The OAuth2 access token.
+        """
         self._access_token = access_token
 
     async def get_token(self, *scopes, **kwargs) -> AccessToken:
-        # Set token expiration to 1 hour from now
-        expires_on = int((datetime.datetime.utcnow() + datetime.timedelta(hours=1)).timestamp())
+        """
+        Get an access token for the requested scopes.
+
+        Args:
+            *scopes: Scopes for the token.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            AccessToken: The access token object.
+        """
+        expires_on = int(
+            (datetime.datetime.utcnow() + datetime.timedelta(hours=1)).timestamp()
+        )
         return AccessToken(self._access_token, expires_on)
 
     async def close(self):
-        # Required to satisfy async context management in GraphServiceClient
+        """
+        Close the credential (no-op for manual token).
+        """
         pass
 
 
-def sanitize_folder_id(folder_id: Optional[str]) -> str:
-    return folder_id if folder_id and folder_id.strip() else "root"
+def get_onedrive_creds(metadata: Optional[Dict]) -> Optional[Dict]:
+    """
+    Retrieve and refresh OneDrive credentials from metadata.
 
+    Args:
+        metadata (Optional[Dict]): Metadata containing access and refresh tokens.
 
-async def get_graph_client(email: str) -> Optional[GraphServiceClient]:
-    token_data = user_tokens.get(email)
-    if not token_data:
+    Returns:
+        Optional[Dict]: Credentials dict if valid, else None.
+    """
+    if not metadata:
         return None
 
-    # Refresh token if expired or missing access_token
-    if "access_token" not in token_data:
-        refresh_data = {
+    creds = metadata
+    access_token = creds.get("access_token")
+    refresh_token = creds.get("refresh_token")
+
+    if access_token and is_token_valid(access_token):
+        return creds
+
+    # Attempt refresh if access token is missing or expired
+    if refresh_token:
+        resp = requests.post(TOKEN_URL, data={
             "client_id": CLIENT_ID,
             "client_secret": CLIENT_SECRET,
             "grant_type": "refresh_token",
-            "refresh_token": token_data["refresh_token"],
+            "refresh_token": refresh_token,
             "redirect_uri": REDIRECT_URI,
-        }
-        resp = requests.post(TOKEN_URL, data=refresh_data).json()
-        token_data["access_token"] = resp.get("access_token")
-        token_data["refresh_token"] = resp.get("refresh_token", token_data["refresh_token"])  # update if new
+        }).json()
 
-    credential = ManualTokenCredential(token_data["access_token"])
+        new_access = resp.get("access_token")
+        if new_access:
+            creds["access_token"] = new_access
+            creds["refresh_token"] = resp.get("refresh_token", refresh_token)
+            return creds
+
+    return None
+
+
+def is_token_valid(token: str) -> bool:
+    """
+    Check if a JWT token is valid (not expired).
+
+    Args:
+        token (str): JWT access token.
+
+    Returns:
+        bool: True if valid, False otherwise.
+    """
+    try:
+        import jwt
+        payload = jwt.decode(token, options={"verify_signature": False})
+        exp = payload.get("exp")
+        return exp and datetime.datetime.utcfromtimestamp(exp) > datetime.datetime.utcnow()
+    except Exception:
+        return False
+
+
+def sanitize_folder_id(folder_id: Optional[str]) -> str:
+    """
+    Return folder_id or 'root' if not provided or empty.
+
+    Args:
+        folder_id (Optional[str]): Folder ID string.
+
+    Returns:
+        str: Sanitized folder ID.
+    """
+    return folder_id if folder_id and folder_id.strip() else "root"
+
+
+async def get_graph_client(metadata: Dict) -> Optional[GraphServiceClient]:
+    """
+    Get an authenticated Microsoft Graph client.
+
+    Args:
+        metadata (Dict): Credentials metadata containing access token.
+
+    Returns:
+        Optional[GraphServiceClient]: Authenticated client or None.
+    """
+    creds = get_onedrive_creds(metadata)
+    if not creds:
+        raise ValueError("Missing or invalid Microsoft Graph credentials.")
+
+    access_token = creds.get("access_token")
+    credential = ManualTokenCredential(access_token)
     return GraphServiceClient(credential, scopes=SCOPES)
 
 
 @mcp.tool(name="onedrive_list_files")
-def list_files(email: str) -> str:
-    """List files from the root of the user's default OneDrive."""
+def list_files(metadata: Dict) -> str:
+    """
+    List files from the root of the user's default OneDrive.
+
+    Args:
+        metadata (Dict): Credentials metadata for authentication.
+
+    Returns:
+        str: JSON string of file names and IDs.
+    """
     async def inner():
-        client = await get_graph_client(email)
+        """
+        List files from the root folder using the Graph client.
+
+        Returns:
+            list: List of file dicts with name and id.
+        """
+        client = await get_graph_client(metadata)
         if not client:
             return "❌ Not authorized."
 
@@ -110,20 +216,69 @@ def list_files(email: str) -> str:
     return json.dumps(asyncio.run(inner()))
 
 
-
 @mcp.tool(name="list_authorized_accounts")
-def list_authorized_accounts() -> str:
-    """List all Azure accounts that have been authorized. This tool can be used if no email is provided in query."""
+def list_authorized_accounts(metadata: Dict = {}) -> str:
+    """
+    List all Azure accounts that have been authorized.
+
+    Args:
+        metadata (Dict, optional): Credentials metadata for fallback hydration.
+
+    Returns:
+        str: List of authorized user emails or message.
+    """
+    global user_tokens
+
+    if not user_tokens:
+        creds = get_onedrive_creds(metadata)
+        if creds and "access_token" in creds:
+            try:
+                access_token = creds["access_token"]
+                userinfo = requests.get(
+                    "https://graph.microsoft.com/v1.0/me",
+                    headers={"Authorization": f"Bearer {access_token}"}
+                ).json()
+
+                email = userinfo.get(
+                    "userPrincipalName") or userinfo.get("mail")
+                if not email:
+                    return "⚠️ Email not found in metadata token."
+
+                user_tokens[email] = {
+                    "access_token": access_token,
+                    "refresh_token": creds.get("refresh_token")
+                }
+            except Exception as e:
+                return f"❌ Failed to hydrate from metadata: {e}"
+
     return "\n".join(user_tokens.keys()) or "No users authorized yet."
+
 
 @mcp.tool(name="onedrive_get_auth_url")
 def get_auth_url() -> str:
+    """
+    Get the OAuth2 authorization URL for Microsoft login.
+
+    Returns:
+        str: The constructed authorization URL.
+    """
     return build_auth_url()
 
 
 @mcp.tool(name="onedrive_search_file_content")
-def search_file_content(email: str, drive_id: str, file_id: str, keyword: str) -> str:
-    """Search inside a single OneDrive file (.txt, .docx, .pdf) for a keyword."""
+def search_file_content(metadata: Dict, drive_id: str, file_id: str, keyword: str) -> str:
+    """
+    Search inside a single OneDrive file (.txt, .docx, .pdf) for a keyword.
+
+    Args:
+        metadata (Dict): Credentials metadata for authentication.
+        drive_id (str): ID of the OneDrive drive.
+        file_id (str): ID of the file to search.
+        keyword (str): Keyword to search for in the file.
+
+    Returns:
+        str: JSON result indicating match and file info.
+    """
     import aiohttp
     from io import BytesIO
     from docx import Document
@@ -146,7 +301,7 @@ def search_file_content(email: str, drive_id: str, file_id: str, keyword: str) -
         return None
 
     async def inner():
-        client = await get_graph_client(email)
+        client = await get_graph_client(metadata)
         if not client:
             return "❌ Not authorized."
         file = await client.drives.by_drive_id(drive_id).items.by_drive_item_id(file_id).get()
@@ -169,8 +324,19 @@ def search_file_content(email: str, drive_id: str, file_id: str, keyword: str) -
 
 
 @mcp.tool(name="onedrive_search_folder_for_content")
-def search_folder_for_content(email: str, drive_id: str, folder_id: str, keyword: str) -> str:
-    """Recursively search .txt, .docx, and .pdf files in OneDrive folder for keyword."""
+def search_folder_for_content(metadata: Dict, drive_id: str, folder_id: str, keyword: str) -> str:   # noqa: C901
+    """
+    Recursively search .txt, .docx, and .pdf files in OneDrive folder for keyword.
+
+    Args:
+        metadata (Dict): Credentials metadata for authentication.
+        drive_id (str): ID of the OneDrive drive.
+        folder_id (str): ID of the folder to search.
+        keyword (str): Keyword to search for in files.
+
+    Returns:
+        str: JSON result of matching files or error message.
+    """
     import aiohttp
     from io import BytesIO
     from docx import Document
@@ -222,7 +388,7 @@ def search_folder_for_content(email: str, drive_id: str, folder_id: str, keyword
         return results
 
     async def inner():
-        client = await get_graph_client(email)
+        client = await get_graph_client(metadata)
         if not client:
             return "❌ Not authorized."
         try:
@@ -234,13 +400,70 @@ def search_folder_for_content(email: str, drive_id: str, folder_id: str, keyword
     return asyncio.run(inner())
 
 
+@mcp.tool(name="onedrive_get_file_content")
+def get_file_content(metadata: Dict, drive_id: str, file_id: str) -> str:
+    """
+    Download and return the plain text content of a OneDrive file (.txt, .docx, .pdf).
+
+    Args:
+        metadata (Dict): Credentials metadata for authentication.
+        drive_id (str): ID of the OneDrive drive.
+        file_id (str): ID of the file to download.
+
+    Returns:
+        str: Extracted text content or error message.
+    """
+
+    async def fetch_and_extract_text(download_url: str, file_name: str) -> Optional[str]:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(download_url) as resp:
+                if resp.status != 200:
+                    return None
+                file_bytes = await resp.read()
+
+        if file_name.endswith(".txt"):
+            return file_bytes.decode("utf-8", errors="ignore")
+        elif file_name.endswith(".docx"):
+            return "\n".join(p.text for p in Document(BytesIO(file_bytes)).paragraphs)
+        elif file_name.endswith(".pdf"):
+            with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+                return "\n".join(page.get_text() for page in doc)
+        else:
+            return None  # unsupported format
+
+    async def inner():
+        client = await get_graph_client(metadata)
+        if not client:
+            return "❌ Not authorized."
+
+        file = await client.drives.by_drive_id(drive_id).items.by_drive_item_id(file_id).get()
+        download_url = file.additional_data.get("@microsoft.graph.downloadUrl")
+        if not download_url:
+            return "❌ Download URL not found."
+
+        content = await fetch_and_extract_text(download_url, file.name)
+        if not content:
+            return "❌ Could not extract content."
+
+        return content
+
+    return asyncio.run(inner())
 
 
 @mcp.tool(name="onedrive_get_preferred_drive_id")
-def get_preferred_drive_id(email: str, drive_name: str = "OneDrive") -> str:
-    """Get preferred drive ID for the authenticated user by name."""
+def get_preferred_drive_id(metadata: Dict, drive_name: str = "OneDrive") -> str:
+    """
+    Get preferred drive ID for the authenticated user by name.
+
+    Args:
+        metadata (Dict): Credentials metadata for authentication.
+        drive_name (str, optional): Name of the drive to prefer. Defaults to "OneDrive".
+
+    Returns:
+        str: JSON string with preferred drive ID.
+    """
     async def inner():
-        client = await get_graph_client(email)
+        client = await get_graph_client(metadata)
         if not client:
             return "❌ Not authorized."
         result = await client.me.drives.get()
@@ -255,12 +478,23 @@ def get_preferred_drive_id(email: str, drive_name: str = "OneDrive") -> str:
     drive_id = asyncio.run(inner())
     return json.dumps({"drive_id": drive_id})
 
+
 @mcp.tool(name="onedrive_list_folder")
-def list_children_in_drive_item(email: str, drive_id: str, folder_id: str = "root") -> str:
-    """List children in a given folder of a OneDrive drive."""
+def list_children_in_drive_item(metadata: Dict, drive_id: str, folder_id: str = "root") -> str:
+    """
+    List children in a given folder of a OneDrive drive.
+
+    Args:
+        metadata (Dict): Credentials metadata for authentication.
+        drive_id (str): ID of the OneDrive drive.
+        folder_id (str, optional): ID of the folder. Defaults to "root".
+
+    Returns:
+        str: JSON string of folder children or error message.
+    """
     async def inner():
         folder_id_sanitized = sanitize_folder_id(folder_id)
-        client = await get_graph_client(email)
+        client = await get_graph_client(metadata)
         if not client:
             return "❌ Not authorized."
         response = await client.drives \
@@ -276,8 +510,18 @@ def list_children_in_drive_item(email: str, drive_id: str, folder_id: str = "roo
 
 
 @mcp.tool(name="onedrive_find_files_by_name")
-def find_files_by_name(email: str, keyword: str, folder_id: str = "root") -> str:
-    """Recursively search for files by name in user's default OneDrive."""
+def find_files_by_name(metadata: Dict, keyword: str, folder_id: str = "root") -> str:
+    """
+    Recursively search for files by name in user's default OneDrive.
+
+    Args:
+        metadata (Dict): Credentials metadata for authentication.
+        keyword (str): Keyword to match file names.
+        folder_id (str, optional): Folder ID to start search. Defaults to "root".
+
+    Returns:
+        str: JSON string of matching files or error message.
+    """
 
     folder_id = sanitize_folder_id(folder_id)
 
@@ -301,13 +545,14 @@ def find_files_by_name(email: str, keyword: str, folder_id: str = "root") -> str
 
         for item in response.value:
             if keyword.lower() in item.name.lower():
-                matches.append({"name": item.name, "id": item.id, "web_url": item.web_url})
+                matches.append(
+                    {"name": item.name, "id": item.id, "web_url": item.web_url})
             if item.folder:
                 matches += await recursive_search(client, drive_id, item.id, keyword)
         return matches
 
     async def main():
-        client = await get_graph_client(email)
+        client = await get_graph_client(metadata)
         if not client:
             return "❌ Not authorized."
         drive_id = await get_preferred_drive(client)
@@ -316,11 +561,20 @@ def find_files_by_name(email: str, keyword: str, folder_id: str = "root") -> str
     result = asyncio.run(main())
     return json.dumps(result)
 
+
 @mcp.tool(name="onedrive_sharepoint_list_all_user_drives")
-def list_all_user_drives(email: str) -> str:
-    """List all drives (OneDrive + SharePoint) for the authenticated user."""
+def list_all_user_drives(metadata: Dict) -> str:
+    """
+    List all drives (OneDrive + SharePoint) for the authenticated user.
+
+    Args:
+        metadata (Dict): Credentials metadata for authentication.
+
+    Returns:
+        str: JSON string of all user drives.
+    """
     async def inner():
-        client = await get_graph_client(email)
+        client = await get_graph_client(metadata)
         if not client:
             return "❌ Not authorized."
         result = await client.me.drives.get()
@@ -336,18 +590,24 @@ def list_all_user_drives(email: str) -> str:
     drives = asyncio.run(inner())
     return json.dumps(drives)
 
+
 @mcp.tool(name="sharepoint_list_sites")
-def sharepoint_list_sites(email: str) -> str:
-    """List available SharePoint sites using delegated auth and raw Graph API call."""
+def sharepoint_list_sites(metadata: Dict) -> str:
+    """
+    List available SharePoint sites using delegated auth and raw Graph API call.
+
+    Args:
+        metadata (Dict): Credentials metadata for authentication.
+
+    Returns:
+        str: JSON string of SharePoint sites or error message.
+    """
 
     import aiohttp
 
     async def inner():
-        token_data = user_tokens.get(email)
-        if not token_data or "access_token" not in token_data:
-            return "❌ Not authorized or token missing."
-
-        access_token = token_data["access_token"]
+        creds = get_onedrive_creds(metadata)
+        access_token = creds["access_token"]
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/json"
@@ -376,30 +636,59 @@ def sharepoint_list_sites(email: str) -> str:
 
 
 @mcp.tool(name="sharepoint_list_document_libraries")
-def sharepoint_list_document_libraries(email: str, site_id: str) -> str:
-    """List all document libraries in a SharePoint site."""
-    async def inner():
-        client = await get_graph_client(email)
-        if not client:
-            return "❌ Not authorized."
-        response = await client.sites.by_site_id(site_id).drives.get()
-        return [{"name": d.name, "id": d.id} for d in response.value]
-    return json.dumps(asyncio.run(inner()))
+def sharepoint_list_document_libraries(metadata: Dict, site_id: str) -> str:
+    """
+    List document libraries in a site (drives).
 
-@mcp.tool(name="sharepoint_list_site_drive_items")
-def sharepoint_list_site_drive_items(email: str, site_id: str, folder_id: str = "root") -> str:
-    """List items in a SharePoint site folder."""
+    Args:
+        metadata (Dict): Credentials metadata for authentication.
+        site_id (str): ID of the SharePoint site.
+
+    Returns:
+        str: JSON string of document libraries or error message.
+    """
     async def inner():
-        folder_id_sanitized = sanitize_folder_id(folder_id)
-        client = await get_graph_client(email)
+        client = await get_graph_client(metadata)
         if not client:
             return "❌ Not authorized."
 
         try:
-            # Validate and get site's drive
-            drive = await client.sites.by_site_id(site_id).drive.get()
+            site_parts = site_id.split(",")
+            site_id_only = site_parts[1]
+
+            drives = await client.sites.by_site_id(site_id_only).drives.get()
+            return [
+                {"name": d.name, "id": d.id}
+                for d in drives.value
+            ]
+        except Exception as e:
+            return f"❌ Error listing document libraries: {str(e)}"
+
+    return json.dumps(asyncio.run(inner()))
+
+
+@mcp.tool(name="sharepoint_list_drive_items")
+def sharepoint_list_drive_items(metadata: Dict, drive_id: str, folder_id: str = "root") -> str:
+    """
+    List items in a SharePoint drive folder.
+
+    Args:
+        metadata (Dict): Credentials metadata for authentication.
+        drive_id (str): ID of the SharePoint drive.
+        folder_id (str, optional): ID of the folder. Defaults to "root".
+
+    Returns:
+        str: JSON string of drive items or error message.
+    """
+    async def inner():
+        folder_id_sanitized = sanitize_folder_id(folder_id)
+        client = await get_graph_client(metadata)
+        if not client:
+            return "❌ Not authorized."
+
+        try:
             resp = await client.drives \
-                .by_drive_id(drive.id) \
+                .by_drive_id(drive_id) \
                 .items \
                 .by_drive_item_id(folder_id_sanitized) \
                 .children \
@@ -415,18 +704,35 @@ def sharepoint_list_site_drive_items(email: str, site_id: str, folder_id: str = 
                 for item in resp.value
             ]
         except Exception as e:
-            return f"❌ Error accessing SharePoint site drive items: {str(e)}"
+            return f"❌ Error accessing SharePoint drive items: {str(e)}"
 
     return json.dumps(asyncio.run(inner()))
 
 
-
-
 # ────── OAuth Endpoints ──────
 async def authorize(request: Request):
+    """
+    Redirect user to Microsoft OAuth2 authorization URL.
+
+    Args:
+        request (Request): Starlette request object.
+
+    Returns:
+        RedirectResponse: Redirect to authorization URL.
+    """
     return RedirectResponse(build_auth_url())
 
+
 async def oauth2callback(request: Request):
+    """
+    Handle OAuth2 callback and exchange code for tokens.
+
+    Args:
+        request (Request): Starlette request object containing OAuth2 code.
+
+    Returns:
+        JSONResponse: Authentication result and tokens or error.
+    """
     code = request.query_params.get("code")
     data = {
         "client_id": CLIENT_ID,
@@ -450,12 +756,16 @@ async def oauth2callback(request: Request):
     if not email:
         return JSONResponse({"error": "Failed to fetch user info"}, status_code=400)
 
-    user_tokens[email] = {
+    refresh_token = token_resp.get("refresh_token", None)
+
+    return JSONResponse({
+        "message": f"Authenticated as {email}",
+        "email": email,
         "access_token": access_token,
-        "refresh_token": token_resp.get("refresh_token"),
+        "refresh_token": refresh_token,
         "code": code
-    }
-    return JSONResponse({"message": f"Authenticated as {email}"})
+    })
+
 
 # ────── Starlette App ──────
 mcp_app = mcp.http_app(transport="sse")
