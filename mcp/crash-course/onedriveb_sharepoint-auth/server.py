@@ -275,9 +275,7 @@ def list_files(metadata: Dict) -> dict:
                     "drive_id": drive.id,
                     "web_url": getattr(f, "web_url", None),
                     "size": getattr(f, "size", None),
-                    "mime_type": (
-                        getattr(f, "file", {}).get("mimeType") if f.file else None
-                    ),
+                    "mime_type": f.file.mime_type if f.file else None,
                     "is_folder": bool(f.folder),
                 }
             )
