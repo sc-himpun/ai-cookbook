@@ -288,105 +288,201 @@ def list_files(metadata: Dict) -> dict:
     return asyncio.run(inner())
 
 
-@mcp.tool(name="onedrive_search_file_content")
-def search_file_content(
-    metadata: Dict, drive_id: str, file_id: str, keyword: str
-) -> dict:
+async def async_fetch_and_extract_text(download_url: str, file_name: str) -> str | None:
     """
-    Search inside a single OneDrive file (.txt, .docx, .pdf) for a keyword and
-    return a standardized response suitable for UI and tool chaining.
+    Download a OneDrive file and extract its plain text content.
+
+    Supports `.txt`, `.docx`, and `.pdf` files. For unsupported file types,
+    returns `None`.
 
     Args:
-        metadata (Dict): Credentials metadata for authentication.
-        drive_id (str): ID of the OneDrive drive containing the file.
-        file_id (str): ID of the file to search.
-        keyword (str): Keyword to search for in the file content.
+        download_url (str): Pre-authenticated Microsoft Graph download URL for the file.
+        file_name (str): File name including extension (used to determine parser).
 
     Returns:
-        dict: Standardized `make_response` output containing:
-            - success (bool): True if search succeeded, False otherwise.
-            - action (str): Tool/action name (`onedrive_search_file_content`).
-            - message (str): Human-readable summary for UI (no IDs shown).
-            - data (list[dict]): File metadata for tool chaining, including:
-                - name (str)  -- safe for UI
-                - id (str)  -- NOT safe for UI, for internal chaining
-                - drive_id (str)  -- NOT safe for UI, for internal chaining
-                - web_url (str | None)  -- safe for UI
-                - size (int | None)
-                - mime_type (str | None)  -- safe for UI
-                - is_folder (bool)
-                - match (bool) -- True if keyword found
+        str | None: Extracted text content as a string, or `None` if extraction fails.
+
+    Raises:
+        aiohttp.ClientError: If there are network-related issues while downloading.
+        UnicodeDecodeError: For `.txt` files with invalid encoding.
+        fitz.FileDataError: For corrupted or invalid PDF data.
+
+    Notes:
+        - `.txt` → UTF-8 decoded with errors ignored.
+        - `.docx` → Concatenates all paragraph texts.
+        - `.pdf` → Concatenates all pages' text.
     """
+    async with aiohttp.ClientSession() as session:
+        async with session.get(download_url) as resp:
+            if resp.status != 200:
+                return None
+            file_bytes = await resp.read()
 
-    async def fetch_and_extract_text(download_url: str, file_name: str) -> str | None:
-        """Download the file and extract its text content based on file type."""
-        async with aiohttp.ClientSession() as session:
-            async with session.get(download_url) as resp:
-                if resp.status != 200:
-                    return None
-                file_bytes = await resp.read()
+    if file_name.endswith(".txt"):
+        return file_bytes.decode("utf-8", errors="ignore")
+    elif file_name.endswith(".docx"):
+        return "\n".join(p.text for p in Document(BytesIO(file_bytes)).paragraphs)
+    elif file_name.endswith(".pdf"):
+        with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+            return "\n".join(page.get_text() for page in doc)
+    return None
 
-        if file_name.endswith(".txt"):
-            return file_bytes.decode("utf-8", errors="ignore")
-        elif file_name.endswith(".docx"):
-            return "\n".join(p.text for p in Document(BytesIO(file_bytes)).paragraphs)
-        elif file_name.endswith(".pdf"):
-            with fitz.open(stream=file_bytes, filetype="pdf") as doc:
-                return "\n".join(page.get_text() for page in doc)
-        return None
 
+async def async_get_file_info(client, drive_id: str, file_id: str):
+    """
+    Retrieve OneDrive file metadata and its download URL.
+
+    Args:
+        client: Authenticated Microsoft Graph client (via `get_graph_client`).
+        drive_id (str): ID of the OneDrive drive that contains the file.
+        file_id (str): ID of the file to retrieve.
+
+    Returns:
+        tuple[file_item | None, str | None]:
+            - file_item: Microsoft Graph file object, or None if retrieval fails.
+            - download_url: Pre-authenticated download URL, or None if missing.
+
+    Raises:
+        Exception: If Graph API request fails.
+
+    Notes:
+        - The `file_item` may contain additional metadata (size, mime type, web_url, etc.).
+        - The `@microsoft.graph.downloadUrl` is short-lived and should be used immediately.
+    """
+    try:
+        file_item = (
+            await client.drives.by_drive_id(drive_id)
+            .items.by_drive_item_id(file_id)
+            .get()
+        )
+        download_url = file_item.additional_data.get("@microsoft.graph.downloadUrl")
+        return file_item, download_url
+    except Exception:
+        return None, None
+
+
+@mcp.tool(name="onedrive_search_file_content")
+def search_file_content(metadata: Dict, drive_id: str, file_id: str, keyword: str) -> dict:
+    """
+    Search for a keyword inside a OneDrive file (.txt, .docx, .pdf).
+
+    Uses Microsoft Graph API to download and extract file content, then performs
+    a case-insensitive keyword search. Returns standardized response for UI and
+    tool chaining.
+
+    Args:
+        metadata (Dict): Credentials metadata for Microsoft Graph authentication.
+        drive_id (str): OneDrive drive ID containing the file.
+        file_id (str): File ID within the drive.
+        keyword (str): Keyword to search for in file content.
+
+    Returns:
+        dict: Standardized `make_response` dictionary with:
+            - success (bool): True if operation succeeded.
+            - action (str): "onedrive_search_file_content".
+            - message (str): Human-readable summary ("Keyword found..." etc.).
+            - data (list[dict]): Single-item list with:
+                - name (str): File name (UI safe).
+                - id (str): File ID (internal use only).
+                - drive_id (str): Drive ID (internal use only).
+                - web_url (str | None): File's OneDrive/SharePoint web URL.
+                - size (int | None): File size in bytes.
+                - mime_type (str | None): MIME type.
+                - is_folder (bool): Whether the item is a folder.
+                - match (bool): True if keyword was found in the content.
+
+    Notes:
+        - Only `.txt`, `.docx`, `.pdf` files are supported for content search.
+        - Response is designed for chaining into other MCP tools.
+    """
     async def inner():
-        """Async implementation to search file content and prepare standardized response."""
         client = await get_graph_client(metadata)
         if not client:
-            return make_response(
-                False, "onedrive_search_file_content", "❌ Not authorized.", []
-            )
+            return make_response(False, "onedrive_search_file_content", "❌ Not authorized.", [])
 
-        try:
-            file = (
-                await client.drives.by_drive_id(drive_id)
-                .items.by_drive_item_id(file_id)
-                .get()
-            )
-        except Exception as e:
-            return make_response(
-                False,
-                "onedrive_search_file_content",
-                f"❌ Could not access file: {e}",
-                [],
-            )
+        file_item, download_url = await async_get_file_info(client, drive_id, file_id)
+        if not (file_item and download_url):
+            return make_response(False, "onedrive_search_file_content", "❌ Could not access file.", [])
 
-        download_url = file.additional_data.get("@microsoft.graph.downloadUrl")
-        if not download_url:
-            return make_response(
-                False, "onedrive_search_file_content", "❌ Download URL not found.", []
-            )
-
-        content = await fetch_and_extract_text(download_url, file.name)
+        content = await async_fetch_and_extract_text(download_url, file_item.name)
         if content is None:
-            return make_response(
-                False,
-                "onedrive_search_file_content",
-                "❌ Could not extract content.",
-                [],
-            )
+            return make_response(False, "onedrive_search_file_content", "❌ Could not extract content.", [])
 
         match = keyword.lower() in content.lower()
-
-        file_info = {
-            "name": file.name,
-            "id": file.id,
+        data = [{
+            "name": file_item.name,
+            "id": file_item.id,
             "drive_id": drive_id,
-            "web_url": getattr(file, "web_url", None),
-            "size": getattr(file, "size", None),
-            "mime_type": file.file.mime_type if file.file else None,
-            "is_folder": bool(file.folder),
+            "web_url": getattr(file_item, "web_url", None),
+            "size": getattr(file_item, "size", None),
+            "mime_type": file_item.file.mime_type if file_item.file else None,
+            "is_folder": bool(file_item.folder),
             "match": match,
-        }
+        }]
+        msg = f"Keyword {'found' if match else 'not found'} in '{file_item.name}'."
+        return make_response(True, "onedrive_search_file_content", msg, data)
 
-        message = f"✅ Keyword {'found' if match else 'not found'} in '{file.name}'."
-        return make_response(True, "onedrive_search_file_content", message, [file_info])
+    return asyncio.run(inner())
+
+
+@mcp.tool(name="onedrive_get_file_content")
+def get_file_content(metadata: Dict, drive_id: str, file_id: str) -> dict:
+    """
+    Download and extract the plain text content of a OneDrive file.
+
+    Uses Microsoft Graph API to fetch the file, download its content, and parse
+    supported formats (`.txt`, `.docx`, `.pdf`). Returns a standardized response
+    suitable for UI display or tool chaining.
+
+    Args:
+        metadata (Dict): Credentials metadata for Microsoft Graph authentication.
+        drive_id (str): OneDrive drive ID containing the file.
+        file_id (str): File ID within the drive.
+
+    Returns:
+        dict: Standardized `make_response` dictionary with:
+            - success (bool): True if operation succeeded.
+            - action (str): "onedrive_get_file_content".
+            - message (str): Human-readable summary ("Successfully retrieved...").
+            - data (list[dict]): Single-item list with:
+                - name (str): File name (UI safe).
+                - id (str): File ID (internal use only).
+                - drive_id (str): Drive ID (internal use only).
+                - web_url (str | None): File's OneDrive/SharePoint web URL.
+                - size (int | None): File size in bytes.
+                - mime_type (str | None): MIME type.
+                - is_folder (bool): Whether the item is a folder.
+                - content (str): Extracted plain text content of the file.
+
+    Notes:
+        - Designed for LLM ingestion, indexing, or summarization pipelines.
+        - Supports `.txt`, `.docx`, and `.pdf`. Unsupported formats return an error.
+    """
+    async def inner():
+        client = await get_graph_client(metadata)
+        if not client:
+            return make_response(False, "onedrive_get_file_content", "❌ Not authorized.", [])
+
+        file_item, download_url = await async_get_file_info(client, drive_id, file_id)
+        if not (file_item and download_url):
+            return make_response(False, "onedrive_get_file_content", "❌ Could not access file.", [])
+
+        content = await async_fetch_and_extract_text(download_url, file_item.name)
+        if content is None:
+            return make_response(False, "onedrive_get_file_content", "❌ Could not extract content.", [])
+
+        data = [{
+            "name": file_item.name,
+            "id": file_item.id,
+            "drive_id": drive_id,
+            "web_url": getattr(file_item, "web_url", None),
+            "size": getattr(file_item, "size", None),
+            "mime_type": file_item.file.mime_type if file_item.file else None,
+            "is_folder": bool(file_item.folder),
+            "content": content,
+        }]
+        msg = f"Successfully retrieved content for '{file_item.name}'."
+        return make_response(True, "onedrive_get_file_content", msg, data)
 
     return asyncio.run(inner())
 
@@ -588,101 +684,7 @@ def search_folder_for_content(
     return asyncio.run(inner())
 
 
-@mcp.tool(name="onedrive_get_file_content")
-def get_file_content(metadata: Dict, drive_id: str, file_id: str) -> dict:
-    """
-    Download and extract the plain text content of a OneDrive file (.txt, .docx, .pdf)
-    and return a standardized response suitable for UI and tool chaining.
 
-    Args:
-        metadata (Dict): Credentials metadata for authentication.
-        drive_id (str): ID of the OneDrive drive.
-        file_id (str): ID of the file to download.
-
-    Returns:
-        dict: Standardized `make_response` output containing:
-            - success (bool): True if content was retrieved successfully.
-            - action (str): Tool/action name (`onedrive_get_file_content`).
-            - message (str): Human-readable summary for UI (no IDs shown).
-            - data (list[dict]): Single-item list with file metadata, including:
-                - name (str)  -- safe for UI
-                - id (str)  -- NOT safe for UI, for internal tool chaining
-                - drive_id (str)  -- NOT safe for UI, for internal tool chaining
-                - web_url (str | None)  -- safe for UI
-                - size (int | None)
-                - mime_type (str | None)  -- safe for UI
-                - is_folder (bool)
-                - content (str) -- extracted text content
-    """
-
-    async def fetch_and_extract_text(download_url: str, file_name: str) -> str | None:
-        """Download file bytes and extract text content."""
-        async with aiohttp.ClientSession() as session:
-            async with session.get(download_url) as resp:
-                if resp.status != 200:
-                    return None
-                file_bytes = await resp.read()
-
-        if file_name.endswith(".txt"):
-            return file_bytes.decode("utf-8", errors="ignore")
-        elif file_name.endswith(".docx"):
-            return "\n".join(p.text for p in Document(BytesIO(file_bytes)).paragraphs)
-        elif file_name.endswith(".pdf"):
-            with fitz.open(stream=file_bytes, filetype="pdf") as doc:
-                return "\n".join(page.get_text() for page in doc)
-        return None
-
-    async def inner():
-        """Async implementation for fetching file content with standardized output."""
-        client = await get_graph_client(metadata)
-        if not client:
-            return make_response(
-                False, "onedrive_get_file_content", "❌ Not authorized.", []
-            )
-
-        try:
-            file_item = (
-                await client.drives.by_drive_id(drive_id)
-                .items.by_drive_item_id(file_id)
-                .get()
-            )
-            download_url = file_item.additional_data.get("@microsoft.graph.downloadUrl")
-            if not download_url:
-                return make_response(
-                    False, "onedrive_get_file_content", "❌ Download URL not found.", []
-                )
-
-            content = await fetch_and_extract_text(download_url, file_item.name)
-            if not content:
-                return make_response(
-                    False,
-                    "onedrive_get_file_content",
-                    "❌ Could not extract content.",
-                    [],
-                )
-
-            data = [
-                {
-                    "name": file_item.name,
-                    "id": file_item.id,
-                    "drive_id": drive_id,
-                    "web_url": getattr(file_item, "web_url", None),
-                    "size": getattr(file_item, "size", None),
-                    "mime_type": file_item.file.mime_type if file_item.file else None,
-                    "is_folder": bool(file_item.folder),
-                    "content": content,
-                }
-            ]
-
-            message = f"✅ Successfully retrieved content for '{file_item.name}'."
-            return make_response(True, "onedrive_get_file_content", message, data)
-
-        except Exception as e:
-            return make_response(
-                False, "onedrive_get_file_content", f"❌ Error: {str(e)}", []
-            )
-
-    return asyncio.run(inner())
 
 
 @mcp.tool(name="onedrive_list_all_drives")
