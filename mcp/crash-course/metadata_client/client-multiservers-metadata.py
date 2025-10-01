@@ -54,7 +54,7 @@ class MCPOpenAIClient:
             #"azure": "http://localhost:5008/sse",
             #"onedrive": "http://localhost:8056/sse",
             #"onedrive-business_sharepoint": "http://localhost:8057/sse",
-            #"onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
+            "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
             # "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
             # "jira": "http://localhost:8002/mcp-server/sse/",
             #"gitlab": "http://localhost:8017/mcp-server/sse/",
@@ -68,7 +68,7 @@ class MCPOpenAIClient:
             #"salesforce": "http://localhost:8091/mcp-server/sse",
             #"confluence": "http://localhost:8071/mcp-server/sse",
             #"zoom": "http://localhost:8019/mcp-server/sse",
-            "box": "http://localhost:8029/mcp-server/sse",
+            # "box": "http://localhost:8029/mcp-server/sse",
             
             ################################################,
 

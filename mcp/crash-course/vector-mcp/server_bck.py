@@ -80,15 +80,6 @@ file_hash_to_docids: dict[str, List[str]] = {}  # to help removal/reset if neede
 
 
 def get_index() -> FAISS:
-    """
-    Get or initialize the in-memory FAISS index for vector search.
-
-    Returns:
-        FAISS: The current FAISS index instance.
-
-    Example:
-        idx = get_index()
-    """
     global session_index
     if session_index is None:
         dummy_text = " "  # ensures FAISS has at least one vector
@@ -102,18 +93,6 @@ def get_index() -> FAISS:
 
 def get_s3_client_and_bucket(metadata: Dict) -> Tuple[boto3.client, str]:
     """
-    Get a boto3 S3 client and bucket name from metadata.
-
-    Args:
-        metadata (Dict): Metadata dict containing S3 credentials and config.
-
-    Returns:
-        Tuple[boto3.client, str]: S3 client and bucket name.
-
-    Example:
-        client, bucket = get_s3_client_and_bucket(metadata)
-
-    metadata example:
     metadata = {"s3" :{
       "access_key": "...", "secret_key": "...", "bucket": "...",
       "region": "us-east-1",                           # optional
@@ -147,13 +126,10 @@ def get_google_creds(metadata: Optional[Dict]) -> Optional[Credentials]:
     Extract and refresh Google credentials from metadata.
 
     Args:
-        metadata (Optional[Dict]): Dict with 'gdrive' key containing 'access_token', 'refresh_token', etc.
+        metadata (Optional[Dict]): Dict with 'access_token', 'refresh_token', etc.
 
     Returns:
-        Credentials or None: Google OAuth2 credentials object or None if missing.
-
-    Example:
-        creds = get_google_creds(metadata)
+        google.oauth2.credentials.Credentials or None
     """
     metadatag = metadata.get("gdrive") if metadata else None
     if not metadatag:
@@ -189,12 +165,6 @@ def get_google_creds(metadata: Optional[Dict]) -> Optional[Credentials]:
 def get_drive_service(metadata: Dict):
     """
     Create a Google Drive API service using credentials from metadata.
-
-    Args:
-        metadata (Dict): Metadata dict containing Google credentials.
-
-    Returns:
-        googleapiclient.discovery.Resource: Google Drive API service object.
     """
     creds = get_google_creds(metadata)
     if not creds:
@@ -205,16 +175,8 @@ def get_drive_service(metadata: Dict):
 def get_box_file_to_tempfile(metadata: Dict, file_id: str) -> Tuple[str, dict]:
     """
     Download a Box file to a temp file using metadata access_token.
-
-    Args:
-        metadata (Dict): Metadata dict with Box access token.
-        file_id (str): Box file ID.
-
-    Returns:
-        Tuple[str, dict]: Path to temp file and file metadata dict.
-
-    Example:
-        tmp_path, meta = get_box_file_to_tempfile(metadata, file_id)
+    metadata = { "box": { "access_token": "..." } }
+    Returns: (tmp_path, file_metadata)
     """
     md = metadata.get("box") if metadata else None
     if not md:
@@ -249,20 +211,7 @@ def get_box_file_to_tempfile(metadata: Dict, file_id: str) -> Tuple[str, dict]:
 
 
 def md5_stream(fobj, chunk_size: int = 1024 * 1024) -> str:
-    """
-    Compute MD5 hash for a file-like object (seeked to start), streaming.
-
-    Args:
-        fobj: File-like object opened in binary mode.
-        chunk_size (int): Size of chunks to read at a time (default: 1MB).
-
-    Returns:
-        str: MD5 hex digest of the file contents.
-
-    Example:
-        with open('file.pdf', 'rb') as f:
-            hash = md5_stream(f)
-    """
+    """Compute MD5 hash for a file-like object (seeked to start), streaming."""
     h = hashlib.md5()
     while True:
         b = fobj.read(chunk_size)
@@ -273,15 +222,7 @@ def md5_stream(fobj, chunk_size: int = 1024 * 1024) -> str:
 
 
 def stream_s3_to_tempfile(body: StreamingBody) -> str:
-    """
-    Write S3 StreamingBody to a temp file (disk-backed) to avoid large memory use.
-
-    Args:
-        body (StreamingBody): S3 streaming body object.
-
-    Returns:
-        str: Path to the temporary file containing the streamed data.
-    """
+    """Write S3 StreamingBody to a temp file (disk-backed) to avoid large memory use."""
     tmp = tempfile.NamedTemporaryFile(delete=False)
     try:
         for chunk in body.iter_chunks(chunk_size=1024 * 1024):
@@ -290,12 +231,10 @@ def stream_s3_to_tempfile(body: StreamingBody) -> str:
         tmp.flush()
         tmp.close()
         return tmp.name
-    except Exception as e:
+    except Exception:
         try:
             path = tmp.name
             tmp.close()
-            print("Exception occured on processing file :", path)
-            print("Exception: ", str(e))
         finally:
             raise
 
@@ -303,17 +242,7 @@ def stream_s3_to_tempfile(body: StreamingBody) -> str:
 def stream_pdf_chunks_from_path(
     path: str, max_chunk_chars: int, overlap: int
 ) -> Iterable[str]:
-    """
-    Yield text chunks from a PDF file on disk using incremental buffer and overlap split.
-
-    Args:
-        path (str): Path to the PDF file.
-        max_chunk_chars (int): Maximum characters per chunk.
-        overlap (int): Number of overlapping characters between chunks.
-
-    Yields:
-        str: Text chunk from the PDF.
-    """
+    """Yield text chunks from a PDF on disk; incremental buffer + overlap split."""
     doc = fitz.open(path)
     try:
         buffer = ""
@@ -343,17 +272,7 @@ def stream_pdf_chunks_from_path(
 def stream_docx_chunks_from_path(
     path: str, max_chunk_chars: int, overlap: int
 ) -> Iterable[str]:
-    """
-    Yield text chunks from a DOCX file by reading paragraphs and splitting incrementally.
-
-    Args:
-        path (str): Path to the DOCX file.
-        max_chunk_chars (int): Maximum characters per chunk.
-        overlap (int): Number of overlapping characters between chunks.
-
-    Yields:
-        str: Text chunk from the DOCX file.
-    """
+    """Yield chunks by reading paragraphs and splitting incrementally."""
     doc = Document(path)
     buffer = ""
     splitter = RecursiveCharacterTextSplitter(
@@ -379,18 +298,7 @@ def stream_docx_chunks_from_path(
 def stream_text_chunks_iter_lines(
     body: StreamingBody, max_chunk_chars: int, overlap: int, encoding: str = "utf-8"
 ) -> Iterable[str]:
-    """
-    Yield text chunks from a text file on S3 by iterating lines; avoids loading full file in memory.
-
-    Args:
-        body (StreamingBody): S3 streaming body object.
-        max_chunk_chars (int): Maximum characters per chunk.
-        overlap (int): Number of overlapping characters between chunks.
-        encoding (str): Text encoding (default: 'utf-8').
-
-    Yields:
-        str: Text chunk from the file.
-    """
+    """Yield chunks from a text file on S3 by iterating lines; no full file in memory."""
     buffer = ""
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=max_chunk_chars,
@@ -415,15 +323,6 @@ def stream_text_chunks_iter_lines(
 
 
 def guess_mime_from_key(key: str) -> str:
-    """
-    Guess MIME type from file key/extension.
-
-    Args:
-        key (str): File name or key.
-
-    Returns:
-        str: Guessed MIME type string.
-    """
     k = key.lower()
     if k.endswith(".pdf"):
         return "application/pdf"
@@ -439,19 +338,7 @@ def guess_mime_from_key(key: str) -> str:
 
 
 def add_texts_batch(texts: List[str], metas: List[dict]) -> None:
-    """
-    Embed and insert a small batch of texts into FAISS to keep memory usage low.
-
-    Args:
-        texts (List[str]): List of text chunks to embed.
-        metas (List[dict]): List of metadata dicts for each chunk.
-
-    Returns:
-        None
-
-    Example:
-        add_texts_batch(["text1", "text2"], [{...}, {...}])
-    """
+    """Embed and insert a *small* batch into FAISS to keep memory low."""
     print(f"DEBUG: add_texts_batch got {len(texts)} texts")
     if not texts:
         print("WARNING: No texts passed to add_texts_batch, skipping")
@@ -499,7 +386,7 @@ def vector_ingest_s3(
     max_chunk_size: int = 1200,
     overlap: int = 200,
     embed_batch: int = 32,
-) -> dict:  # no qa 
+) -> dict:
     """
     Ingest a single S3 object into FAISS using disk-backed streaming and
     incremental chunk → embed → insert (no full file buffers).
@@ -646,25 +533,6 @@ def vector_ingest_gdrive(
     file_name: Optional[str] = None,
     url: Optional[str] = None,
 ) -> dict:
-    """
-    Ingest a single Google Drive file into FAISS using disk-backed streaming and incremental chunk → embed → insert.
-    Handles empty/invalid files gracefully without crashing.
-
-    Args:
-        metadata (dict): Metadata with Google credentials.
-        file_id (str): Google Drive file ID.
-        max_chunk_size (int): Max characters per chunk (default: 1200).
-        overlap (int): Overlap between chunks (default: 200).
-        embed_batch (int): Batch size for embedding (default: 32).
-        file_name (Optional[str]): Optional file name override.
-        url (Optional[str]): Optional file URL.
-
-    Returns:
-        dict: Status and chunk info.
-
-    Example:
-        vector_ingest_gdrive(metadata, file_id)
-    """
     max_chunk_size = int(max_chunk_size)
     overlap = int(overlap)
     embed_batch = int(embed_batch)
@@ -817,22 +685,6 @@ def vector_ingest_text(
     overlap: int = 200,
     embed_batch: int = 32,
 ) -> dict:
-    """
-    Ingest raw text (already loaded externally) into FAISS using chunking and embedding.
-
-    Args:
-        doc_id (str): Document identifier.
-        text (str): Raw text to ingest.
-        max_chunk_size (int): Max characters per chunk (default: 1200).
-        overlap (int): Overlap between chunks (default: 200).
-        embed_batch (int): Batch size for embedding (default: 32).
-
-    Returns:
-        dict: Status and chunk info.
-
-    Example:
-        vector_ingest_text("doc1", "Some text...")
-    """
     max_chunk_size = int(max_chunk_size)
     overlap = int(overlap)
     embed_batch = int(embed_batch)
@@ -900,20 +752,6 @@ def vector_ingest_box(
     """
     Ingest a single Box file into FAISS using streaming split/insert.
     Requires metadata = {"box": {"access_token": "..."}}
-
-    Args:
-        metadata (dict): Metadata with Box access token.
-        file_id (str): Box file ID.
-        max_chunk_size (int): Max characters per chunk (default: 1200).
-        overlap (int): Overlap between chunks (default: 200).
-        embed_batch (int): Batch size for embedding (default: 32).
-        url (Optional[str]): Optional file URL.
-
-    Returns:
-        dict: Status and chunk info.
-
-    Example:
-        vector_ingest_box(metadata, file_id)
     """
     max_chunk_size = int(max_chunk_size)
     overlap = int(overlap)
@@ -1048,10 +886,12 @@ def vector_query(question: str, top_k: int = 3) -> dict:
         top_k (int, optional): Number of results to return (default: 3).
 
     Returns:
-        dict: Structured response with results and metadata.
-
-    Example:
-        vector_query("What is the capital of France?", top_k=5)
+        dict: A structured response containing:
+            - results: list of matches, each with:
+                - text (str): Content snippet (up to 800 chars).
+                - metadata (dict): Original metadata from ingestion.
+                - source (str): File identifier or URL if available.
+            - total (int): Number of results returned.
     """
     idx = get_index()
     if getattr(idx, "index", None) is None or idx.index.ntotal == 0:
