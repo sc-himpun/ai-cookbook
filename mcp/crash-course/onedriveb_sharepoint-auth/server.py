@@ -6,7 +6,7 @@ import datetime
 import aiohttp
 from io import BytesIO
 from typing import Dict, Optional, List
-
+import jwt
 import nest_asyncio
 import requests
 from dotenv import load_dotenv
@@ -112,13 +112,16 @@ def get_onedrive_creds(metadata: Optional[Dict]) -> Optional[Dict]:
 
     # Attempt refresh if access token is missing or expired
     if refresh_token:
-        resp = requests.post(TOKEN_URL, data={
-            "client_id": CLIENT_ID,
-            "client_secret": CLIENT_SECRET,
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-            "redirect_uri": REDIRECT_URI,
-        }).json()
+        resp = requests.post(
+            TOKEN_URL,
+            data={
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "redirect_uri": REDIRECT_URI,
+            },
+        ).json()
 
         new_access = resp.get("access_token")
         if new_access:
@@ -140,10 +143,11 @@ def is_token_valid(token: str) -> bool:
         bool: True if valid, False otherwise.
     """
     try:
-        import jwt
         payload = jwt.decode(token, options={"verify_signature": False})
         exp = payload.get("exp")
-        return exp and datetime.datetime.utcfromtimestamp(exp) > datetime.datetime.utcnow()
+        return (
+            exp and datetime.datetime.utcfromtimestamp(exp) > datetime.datetime.utcnow()
+        )
     except Exception:
         return False
 
@@ -233,6 +237,7 @@ def list_files(metadata: Dict) -> dict:
                 - mime_type (str | None)  -- safe for UI
                 - is_folder (bool)
     """
+
     async def inner():
         """
         Async implementation of OneDrive file listing.
@@ -255,24 +260,27 @@ def list_files(metadata: Dict) -> dict:
             return make_response(False, "onedrive_list_files", "❌ Not authorized.", [])
 
         drive = await client.me.drive.get()
-        root_children = await client.drives \
-            .by_drive_id(drive.id) \
-            .items \
-            .by_drive_item_id("root") \
-            .children \
-            .get()
+        root_children = (
+            await client.drives.by_drive_id(drive.id)
+            .items.by_drive_item_id("root")
+            .children.get()
+        )
 
         files = []
         for f in root_children.value:
-            files.append({
-                "name": f.name,
-                "id": f.id,
-                "drive_id": drive.id,
-                "web_url": getattr(f, "web_url", None),
-                "size": getattr(f, "size", None),
-                "mime_type": getattr(f, "file", {}).get("mimeType") if f.file else None,
-                "is_folder": bool(f.folder),
-            })
+            files.append(
+                {
+                    "name": f.name,
+                    "id": f.id,
+                    "drive_id": drive.id,
+                    "web_url": getattr(f, "web_url", None),
+                    "size": getattr(f, "size", None),
+                    "mime_type": (
+                        getattr(f, "file", {}).get("mimeType") if f.file else None
+                    ),
+                    "is_folder": bool(f.folder),
+                }
+            )
 
         response_str = "Files retrieved successfully."
         return make_response(True, "onedrive_list_files", response_str, files)
@@ -281,7 +289,9 @@ def list_files(metadata: Dict) -> dict:
 
 
 @mcp.tool(name="onedrive_search_file_content")
-def search_file_content(metadata: Dict, drive_id: str, file_id: str, keyword: str) -> dict:
+def search_file_content(
+    metadata: Dict, drive_id: str, file_id: str, keyword: str
+) -> dict:
     """
     Search inside a single OneDrive file (.txt, .docx, .pdf) for a keyword and
     return a standardized response suitable for UI and tool chaining.
@@ -307,10 +317,6 @@ def search_file_content(metadata: Dict, drive_id: str, file_id: str, keyword: st
                 - is_folder (bool)
                 - match (bool) -- True if keyword found
     """
-    import aiohttp
-    from io import BytesIO
-    from docx import Document
-    import fitz  # PyMuPDF
 
     async def fetch_and_extract_text(download_url: str, file_name: str) -> str | None:
         """Download the file and extract its text content based on file type."""
@@ -333,20 +339,38 @@ def search_file_content(metadata: Dict, drive_id: str, file_id: str, keyword: st
         """Async implementation to search file content and prepare standardized response."""
         client = await get_graph_client(metadata)
         if not client:
-            return make_response(False, "onedrive_search_file_content", "❌ Not authorized.", [])
+            return make_response(
+                False, "onedrive_search_file_content", "❌ Not authorized.", []
+            )
 
         try:
-            file = await client.drives.by_drive_id(drive_id).items.by_drive_item_id(file_id).get()
+            file = (
+                await client.drives.by_drive_id(drive_id)
+                .items.by_drive_item_id(file_id)
+                .get()
+            )
         except Exception as e:
-            return make_response(False, "onedrive_search_file_content", f"❌ Could not access file: {e}", [])
+            return make_response(
+                False,
+                "onedrive_search_file_content",
+                f"❌ Could not access file: {e}",
+                [],
+            )
 
         download_url = file.additional_data.get("@microsoft.graph.downloadUrl")
         if not download_url:
-            return make_response(False, "onedrive_search_file_content", "❌ Download URL not found.", [])
+            return make_response(
+                False, "onedrive_search_file_content", "❌ Download URL not found.", []
+            )
 
         content = await fetch_and_extract_text(download_url, file.name)
         if content is None:
-            return make_response(False, "onedrive_search_file_content", "❌ Could not extract content.", [])
+            return make_response(
+                False,
+                "onedrive_search_file_content",
+                "❌ Could not extract content.",
+                [],
+            )
 
         match = keyword.lower() in content.lower()
 
@@ -358,7 +382,7 @@ def search_file_content(metadata: Dict, drive_id: str, file_id: str, keyword: st
             "size": getattr(file, "size", None),
             "mime_type": file.file.mime_type if file.file else None,
             "is_folder": bool(file.folder),
-            "match": match
+            "match": match,
         }
 
         message = f"✅ Keyword {'found' if match else 'not found'} in '{file.name}'."
@@ -368,7 +392,9 @@ def search_file_content(metadata: Dict, drive_id: str, file_id: str, keyword: st
 
 
 @mcp.tool(name="onedrive_search_folder_for_content")
-def search_folder_for_content(metadata: Dict, drive_id: str, folder_id: str, keyword: str) -> dict:
+def search_folder_for_content(
+    metadata: Dict, drive_id: str, folder_id: str, keyword: str
+) -> dict:
     """
     Recursively search .txt, .docx, and .pdf files in a OneDrive folder for a keyword
     and return a standardized response suitable for UI and tool chaining.
@@ -394,10 +420,6 @@ def search_folder_for_content(metadata: Dict, drive_id: str, folder_id: str, key
                 - is_folder (bool)
                 - match (bool) -- always True for returned files
     """
-    import aiohttp
-    from io import BytesIO
-    from docx import Document
-    import fitz
 
     async def fetch_file_bytes(url: str) -> bytes | None:
         """Download file bytes from OneDrive."""
@@ -440,13 +462,17 @@ def search_folder_for_content(metadata: Dict, drive_id: str, folder_id: str, key
             "size": getattr(file_item, "size", None),
             "mime_type": file_item.file.mime_type if file_item.file else None,
             "is_folder": bool(file_item.folder),
-            "match": True
+            "match": True,
         }
 
     async def recursive_search(client, current_folder_id: str) -> list:
         """Recursively search all files in a folder for the keyword."""
         results = []
-        children = await client.drives.by_drive_id(drive_id).items.by_drive_item_id(current_folder_id).children.get()
+        children = (
+            await client.drives.by_drive_id(drive_id)
+            .items.by_drive_item_id(current_folder_id)
+            .children.get()
+        )
         for item in children.value:
             if item.folder:
                 results.extend(await recursive_search(client, item.id))
@@ -460,16 +486,27 @@ def search_folder_for_content(metadata: Dict, drive_id: str, folder_id: str, key
         """Async implementation for recursive folder search with standardized output."""
         client = await get_graph_client(metadata)
         if not client:
-            return make_response(False, "onedrive_search_folder_for_content", "❌ Not authorized.", [])
+            return make_response(
+                False, "onedrive_search_folder_for_content", "❌ Not authorized.", []
+            )
 
         try:
             matches = await recursive_search(client, folder_id)
             if not matches:
-                return make_response(True, "onedrive_search_folder_for_content", f"No matching files found in folder.", [])
+                return make_response(
+                    True,
+                    "onedrive_search_folder_for_content",
+                    "No matching files found in folder.",
+                    [],
+                )
             message = f"✅ Found {len(matches)} file(s) containing '{keyword}'."
-            return make_response(True, "onedrive_search_folder_for_content", message, matches)
+            return make_response(
+                True, "onedrive_search_folder_for_content", message, matches
+            )
         except Exception as e:
-            return make_response(False, "onedrive_search_folder_for_content", f"❌ Error: {str(e)}", [])
+            return make_response(
+                False, "onedrive_search_folder_for_content", f"❌ Error: {str(e)}", []
+            )
 
     return asyncio.run(inner())
 
@@ -500,10 +537,6 @@ def get_file_content(metadata: Dict, drive_id: str, file_id: str) -> dict:
                 - is_folder (bool)
                 - content (str) -- extracted text content
     """
-    import aiohttp
-    from io import BytesIO
-    from docx import Document
-    import fitz  # PyMuPDF
 
     async def fetch_and_extract_text(download_url: str, file_name: str) -> str | None:
         """Download file bytes and extract text content."""
@@ -526,34 +559,51 @@ def get_file_content(metadata: Dict, drive_id: str, file_id: str) -> dict:
         """Async implementation for fetching file content with standardized output."""
         client = await get_graph_client(metadata)
         if not client:
-            return make_response(False, "onedrive_get_file_content", "❌ Not authorized.", [])
+            return make_response(
+                False, "onedrive_get_file_content", "❌ Not authorized.", []
+            )
 
         try:
-            file_item = await client.drives.by_drive_id(drive_id).items.by_drive_item_id(file_id).get()
+            file_item = (
+                await client.drives.by_drive_id(drive_id)
+                .items.by_drive_item_id(file_id)
+                .get()
+            )
             download_url = file_item.additional_data.get("@microsoft.graph.downloadUrl")
             if not download_url:
-                return make_response(False, "onedrive_get_file_content", "❌ Download URL not found.", [])
+                return make_response(
+                    False, "onedrive_get_file_content", "❌ Download URL not found.", []
+                )
 
             content = await fetch_and_extract_text(download_url, file_item.name)
             if not content:
-                return make_response(False, "onedrive_get_file_content", "❌ Could not extract content.", [])
+                return make_response(
+                    False,
+                    "onedrive_get_file_content",
+                    "❌ Could not extract content.",
+                    [],
+                )
 
-            data = [{
-                "name": file_item.name,
-                "id": file_item.id,
-                "drive_id": drive_id,
-                "web_url": getattr(file_item, "web_url", None),
-                "size": getattr(file_item, "size", None),
-                "mime_type": file_item.file.mime_type if file_item.file else None,
-                "is_folder": bool(file_item.folder),
-                "content": content
-            }]
+            data = [
+                {
+                    "name": file_item.name,
+                    "id": file_item.id,
+                    "drive_id": drive_id,
+                    "web_url": getattr(file_item, "web_url", None),
+                    "size": getattr(file_item, "size", None),
+                    "mime_type": file_item.file.mime_type if file_item.file else None,
+                    "is_folder": bool(file_item.folder),
+                    "content": content,
+                }
+            ]
 
             message = f"✅ Successfully retrieved content for '{file_item.name}'."
             return make_response(True, "onedrive_get_file_content", message, data)
 
         except Exception as e:
-            return make_response(False, "onedrive_get_file_content", f"❌ Error: {str(e)}", [])
+            return make_response(
+                False, "onedrive_get_file_content", f"❌ Error: {str(e)}", []
+            )
 
     return asyncio.run(inner())
 
@@ -578,10 +628,13 @@ def list_all_drives(metadata: Dict) -> dict:
                 - owner (str | None) -- owner of the drive (if available)
                 - web_url (str | None) -- direct web URL for drive (if available)
     """
+
     async def inner():
         client = await get_graph_client(metadata)
         if not client:
-            return make_response(False, "onedrive_list_all_drives", "❌ Not authorized.", [])
+            return make_response(
+                False, "onedrive_list_all_drives", "❌ Not authorized.", []
+            )
 
         try:
             result = await client.me.drives.get()
@@ -594,55 +647,31 @@ def list_all_drives(metadata: Dict) -> dict:
                 owner_name = getattr(owner, "displayName", None) if owner else None
                 web_url = getattr(drive, "webUrl", None)
 
-                drive_list.append({
-                    "id": drive.id,
-                    "name": drive.name,
-                    "drive_type": drive_type,
-                    "owner": owner_name,
-                    "web_url": web_url,
-                })
+                drive_list.append(
+                    {
+                        "id": drive.id,
+                        "name": drive.name,
+                        "drive_type": drive_type,
+                        "owner": owner_name,
+                        "web_url": web_url,
+                    }
+                )
 
             message = f"{len(drive_list)} drive(s) found."
             return make_response(True, "onedrive_list_all_drives", message, drive_list)
 
         except Exception as e:
-            return make_response(False, "onedrive_list_all_drives", f"❌ Error fetching drives: {e}", [])
+            return make_response(
+                False, "onedrive_list_all_drives", f"❌ Error fetching drives: {e}", []
+            )
 
     return asyncio.run(inner())
 
 
-
-# @mcp.tool(name="onedrive_get_preferred_drive_id")
-# def get_preferred_drive_id(metadata: Dict, drive_name: str = "OneDrive") -> str:
-#     """
-#     Get preferred drive ID for the authenticated user by name.
-
-#     Args:
-#         metadata (Dict): Credentials metadata for authentication.
-#         drive_name (str, optional): Name of the drive to prefer. Defaults to "OneDrive".
-
-#     Returns:
-#         str: JSON string with preferred drive ID.
-#     """
-#     async def inner():
-#         client = await get_graph_client(metadata)
-#         if not client:
-#             return "❌ Not authorized."
-#         result = await client.me.drives.get()
-#         drives = result.value
-#         for drive in drives:
-#             if drive.name.lower() == drive_name.lower():
-#                 return drive.id
-#         if drives:
-#             return drives[0].id
-#         raise Exception("No drives found.")
-
-#     drive_id = asyncio.run(inner())
-#     return json.dumps({"drive_id": drive_id})
-
-
 @mcp.tool(name="onedrive_list_folder")
-def list_children_in_drive_item(metadata: Dict, drive_id: str, folder_id: str = "root") -> dict:
+def list_children_in_drive_item(
+    metadata: Dict, drive_id: str, folder_id: str = "root"
+) -> dict:
     """
     List all children (files and folders) in a specified OneDrive folder and return
     a standardized response suitable for both UI display and tool chaining.
@@ -682,6 +711,7 @@ def list_children_in_drive_item(metadata: Dict, drive_id: str, folder_id: str = 
             - message (str)
             - data (list[dict])
     """
+
     async def inner():
         """
         Async implementation for fetching and normalizing OneDrive folder children.
@@ -692,33 +722,37 @@ def list_children_in_drive_item(metadata: Dict, drive_id: str, folder_id: str = 
         folder_id_sanitized = sanitize_folder_id(folder_id)
         client = await get_graph_client(metadata)
         if not client:
-            return make_response(False, "onedrive_list_folder", "❌ Not authorized.", [])
+            return make_response(
+                False, "onedrive_list_folder", "❌ Not authorized.", []
+            )
 
         try:
-            response = await client.drives \
-                .by_drive_id(drive_id) \
-                .items \
-                .by_drive_item_id(folder_id_sanitized) \
-                .children \
-                .get()
+            response = (
+                await client.drives.by_drive_id(drive_id)
+                .items.by_drive_item_id(folder_id_sanitized)
+                .children.get()
+            )
         except Exception as e:
-            return make_response(False, "onedrive_list_folder", f"❌ Error accessing folder: {e}", [])
+            return make_response(
+                False, "onedrive_list_folder", f"❌ Error accessing folder: {e}", []
+            )
 
         items = []
         for item in response.value:
-            items.append({
-                "name": item.name,
-                "id": item.id,
-                "drive_id": drive_id,
-                "web_url": getattr(item, "web_url", None),
-                "size": getattr(item, "size", None),
-                "mime_type": item.file.mime_type if item.file else None,
-                "is_folder": bool(item.folder),
-            })
+            items.append(
+                {
+                    "name": item.name,
+                    "id": item.id,
+                    "drive_id": drive_id,
+                    "web_url": getattr(item, "web_url", None),
+                    "size": getattr(item, "size", None),
+                    "mime_type": item.file.mime_type if item.file else None,
+                    "is_folder": bool(item.folder),
+                }
+            )
 
         summary = "\n".join(
-            f"📄 {i['name']} ({'Folder' if i['is_folder'] else 'File'})"
-            for i in items
+            f"📄 {i['name']} ({'Folder' if i['is_folder'] else 'File'})" for i in items
         )
 
         return make_response(True, "onedrive_list_folder", summary, items)
@@ -753,17 +787,17 @@ def find_files_by_name(metadata: Dict, keyword: str, folder_id: str = "root") ->
 
     async def recursive_search(client, drive_id, folder_id, keyword):
         matches = []
-        response = await client.drives \
-            .by_drive_id(drive_id) \
-            .items \
-            .by_drive_item_id(folder_id) \
-            .children \
-            .get()
+        response = (
+            await client.drives.by_drive_id(drive_id)
+            .items.by_drive_item_id(folder_id)
+            .children.get()
+        )
 
         for item in response.value:
             if keyword.lower() in item.name.lower():
                 matches.append(
-                    {"name": item.name, "id": item.id, "web_url": item.web_url})
+                    {"name": item.name, "id": item.id, "web_url": item.web_url}
+                )
             if item.folder:
                 matches += await recursive_search(client, drive_id, item.id, keyword)
         return matches
@@ -777,35 +811,6 @@ def find_files_by_name(metadata: Dict, keyword: str, folder_id: str = "root") ->
 
     result = asyncio.run(main())
     return json.dumps(result)
-
-
-# @mcp.tool(name="onedrive_sharepoint_list_all_user_drives")
-# def list_all_user_drives(metadata: Dict) -> str:
-#     """
-#     List all drives (OneDrive + SharePoint) for the authenticated user.
-
-#     Args:
-#         metadata (Dict): Credentials metadata for authentication.
-
-#     Returns:
-#         str: JSON string of all user drives.
-#     """
-#     async def inner():
-#         client = await get_graph_client(metadata)
-#         if not client:
-#             return "❌ Not authorized."
-#         result = await client.me.drives.get()
-#         return [
-#             {
-#                 "name": drive.name,
-#                 "id": drive.id,
-#                 "drive_type": drive.drive_type,
-#                 "web_url": getattr(drive, "web_url", None)
-#             }
-#             for drive in result.value
-#         ]
-#     drives = asyncio.run(inner())
-#     return json.dumps(drives)
 
 
 @mcp.tool(name="sharepoint_list_sites")
@@ -847,11 +852,13 @@ def sharepoint_list_sites(metadata: Dict) -> dict:
         creds = get_onedrive_creds(metadata)
         access_token = creds.get("access_token")
         if not access_token:
-            return make_response(False, "sharepoint_list_sites", "❌ Not authorized.", [])
+            return make_response(
+                False, "sharepoint_list_sites", "❌ Not authorized.", []
+            )
 
         headers = {
             "Authorization": f"Bearer {access_token}",
-            "Accept": "application/json"
+            "Accept": "application/json",
         }
 
         url = "https://graph.microsoft.com/v1.0/sites?search=*"
@@ -864,7 +871,7 @@ def sharepoint_list_sites(metadata: Dict) -> dict:
                         False,
                         "sharepoint_list_sites",
                         f"❌ Error fetching SharePoint sites: {resp.status} - {body}",
-                        []
+                        [],
                     )
                 data = await resp.json()
 
@@ -872,27 +879,29 @@ def sharepoint_list_sites(metadata: Dict) -> dict:
             {
                 "site_id": site.get("id"),
                 "name": site.get("name"),
-                "web_url": site.get("webUrl")
+                "web_url": site.get("webUrl"),
             }
             for site in data.get("value", [])
         ]
 
-        summary = "\n".join(f"📄 {site['name']}" for site in sites) or "No SharePoint sites found."
+        summary = (
+            "\n".join(f"📄 {site['name']}" for site in sites)
+            or "No SharePoint sites found."
+        )
         return make_response(True, "sharepoint_list_sites", summary, sites)
 
     return asyncio.run(inner())
 
 
 @mcp.tool(name="sharepoint_list_document_libraries")
-def sharepoint_list_document_libraries(metadata: Dict, site: str) -> dict:
+def sharepoint_list_document_libraries(metadata: Dict, site_id: str) -> dict:
     """
     List document libraries (drives) in a SharePoint site.
+    Always prefer site_id form for SharePoint (hostname, site-id, web-id). Do not pass only short names or URLs.
 
     Args:
         metadata (Dict): Credentials metadata for authentication.
-        site (str): SharePoint site ID (e.g., "contoso.sharepoint.com,123,456") 
-                    or full site URL (e.g., "https://contoso.sharepoint.com/sites/Marketing").
-
+        site_id (str): SharePoint site ID (e.g., "contoso.sharepoint.com,123,456")
     Returns:
         dict: Standardized `make_response` output containing:
             - success (bool): True if libraries were retrieved, False otherwise.
@@ -903,15 +912,15 @@ def sharepoint_list_document_libraries(metadata: Dict, site: str) -> dict:
                 - name (str) -- library name (safe for UI)
                 - web_url (str | None) -- web URL of library (safe for UI)
     """
+
     async def inner():
         """
         Async implementation to list document libraries in a SharePoint site.
 
         Workflow:
             1. Initialize Microsoft Graph client using metadata credentials.
-            2. Determine if `site` is an ID or URL:
-                - If ID, use it directly.
-                - If URL, fetch site ID via Graph API.
+            2. Determine if `site_id` is in complex format:
+                - If complex, extract the actual site ID (middle part).
             3. Fetch drives (document libraries) for the site using Graph API.
             4. Normalize each library into structured dict with:
                 - `drive_id` for internal use
@@ -923,15 +932,12 @@ def sharepoint_list_document_libraries(metadata: Dict, site: str) -> dict:
         """
         client = await get_graph_client(metadata)
         if not client:
-            return make_response(False, "sharepoint_list_document_libraries", "❌ Not authorized.", [])
+            return make_response(
+                False, "sharepoint_list_document_libraries", "❌ Not authorized.", []
+            )
 
         try:
-            # Determine site ID
-            if site.startswith("http"):
-                site_obj = await client.sites.by_site_url(site).get()
-                site_id_only = site_obj.id
-            else:
-                site_id_only = site.split(",")[1] if "," in site else site
+            site_id_only = site_id.split(",")[1] if "," in site_id else site_id
 
             drives = await client.sites.by_site_id(site_id_only).drives.get()
 
@@ -940,26 +946,38 @@ def sharepoint_list_document_libraries(metadata: Dict, site: str) -> dict:
                     "drive_id": d.id,
                     "name": d.name,
                     "drive_type": getattr(d, "driveType", None),
-                    "web_url": getattr(d, "web_url", None)
+                    "web_url": getattr(d, "web_url", None),
                 }
                 for d in drives.value
             ]
 
-            summary = "\n".join(f"📄 {lib['name']}" for lib in libraries) or "No document libraries found."
-            return make_response(True, "sharepoint_list_document_libraries", summary, libraries)
+            summary = (
+                "\n".join(f"📄 {lib['name']}" for lib in libraries)
+                or "No document libraries found."
+            )
+            return make_response(
+                True, "sharepoint_list_document_libraries", summary, libraries
+            )
 
         except Exception as e:
-            return make_response(False, "sharepoint_list_document_libraries", f"❌ Error listing document libraries: {e}", [])
+            return make_response(
+                False,
+                "sharepoint_list_document_libraries",
+                f"❌ Error listing document libraries: {e}",
+                [],
+            )
 
     return asyncio.run(inner())
 
 
 @mcp.tool(name="sharepoint_list_drive_items")
-def sharepoint_list_drive_items(metadata: Dict, drive_id: str, folder_id: str = "root") -> dict:
+def sharepoint_list_drive_items(
+    metadata: Dict, drive_id: str, folder_id: str = "root"
+) -> dict:
     """
     List items in a SharePoint document library (drive) folder.
 
-    This tool normalizes responses from Microsoft Graph into a safe, 
+    This tool normalizes responses from Microsoft Graph into a safe,
     standardized format for LLM use and tool chaining.
 
     Args:
@@ -968,7 +986,7 @@ def sharepoint_list_drive_items(metadata: Dict, drive_id: str, folder_id: str = 
             - Complex format: "<hostname>,<site-id>,<drive-id>"
               Example: "contoso.sharepoint.com,abc123,def456"
             - Raw drive ID (Graph `drive.id`).
-           
+
         folder_id (str, optional): Folder ID within the library. Defaults to "root".
 
     Returns:
@@ -992,6 +1010,7 @@ def sharepoint_list_drive_items(metadata: Dict, drive_id: str, folder_id: str = 
         - if only site id is available, use `sharepoint_list_document_libraries` first
           to get the drive_id for the desired library.
     """
+
     async def inner():
         """
         Async implementation to list items in a SharePoint library folder.
@@ -1013,7 +1032,9 @@ def sharepoint_list_drive_items(metadata: Dict, drive_id: str, folder_id: str = 
         folder_id_sanitized = sanitize_folder_id(folder_id)
         client = await get_graph_client(metadata)
         if not client:
-            return make_response(False, "sharepoint_list_drive_items", "❌ Not authorized.", [])
+            return make_response(
+                False, "sharepoint_list_drive_items", "❌ Not authorized.", []
+            )
 
         try:
             resolved_drive_id = None
@@ -1025,12 +1046,11 @@ def sharepoint_list_drive_items(metadata: Dict, drive_id: str, folder_id: str = 
                 resolved_drive_id = drive_id
 
             # Fetch items
-            resp = await client.drives \
-                .by_drive_id(resolved_drive_id) \
-                .items \
-                .by_drive_item_id(folder_id_sanitized) \
-                .children \
-                .get()
+            resp = (
+                await client.drives.by_drive_id(resolved_drive_id)
+                .items.by_drive_item_id(folder_id_sanitized)
+                .children.get()
+            )
 
             items = [
                 {
@@ -1039,28 +1059,39 @@ def sharepoint_list_drive_items(metadata: Dict, drive_id: str, folder_id: str = 
                     "drive_id": resolved_drive_id,
                     "web_url": getattr(item, "web_url", None),
                     "size": getattr(item, "size", None),
-                    "mime_type": getattr(item.file, "mime_type", None) if item.file else None,
+                    "mime_type": (
+                        getattr(item.file, "mime_type", None) if item.file else None
+                    ),
                     "is_folder": bool(item.folder),
                 }
                 for item in resp.value
             ]
 
-            summary = "\n".join(
-                f"📄 {i['name']} ({'Folder' if i['is_folder'] else 'File'})"
-                for i in items
-            ) or "No items found."
+            summary = (
+                "\n".join(
+                    f"📄 {i['name']} ({'Folder' if i['is_folder'] else 'File'})"
+                    for i in items
+                )
+                or "No items found."
+            )
 
             return make_response(True, "sharepoint_list_drive_items", summary, items)
 
         except Exception as e:
-            return make_response(False, "sharepoint_list_drive_items",
-                                 f"❌ Error accessing SharePoint drive items: {e}", [])
+            return make_response(
+                False,
+                "sharepoint_list_drive_items",
+                f"❌ Error accessing SharePoint drive items: {e}",
+                [],
+            )
 
     return asyncio.run(inner())
 
 
 @mcp.tool(name="onedrive_search_document_libraries")
-def onedrive_search_document_libraries(metadata: Dict, query: str, drive_ids: List[str]) -> dict:
+def onedrive_search_document_libraries(
+    metadata: Dict, query: str, drive_ids: List[str]
+) -> dict:
     """
     Search for files in one or more OneDrive/SharePoint document libraries.
     First list the libraries with `sharepoint_list_document_libraries`, then
@@ -1085,15 +1116,18 @@ def onedrive_search_document_libraries(metadata: Dict, query: str, drive_ids: Li
                 - mime_type (str | None)
                 - is_folder (bool)
     """
+
     async def inner():
-        """ Async implementation to search files in document libraries.
+        """Async implementation to search files in document libraries.
 
         Returns:
             dict: Standardized `make_response` output.
         """
         creds = get_onedrive_creds(metadata)
         if not creds or not creds.get("access_token"):
-            return make_response(False, "onedrive_search_document_libraries", "❌ Not authorized.", [])
+            return make_response(
+                False, "onedrive_search_document_libraries", "❌ Not authorized.", []
+            )
 
         token = creds["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
@@ -1106,25 +1140,42 @@ def onedrive_search_document_libraries(metadata: Dict, query: str, drive_ids: Li
                     async with session.get(url) as resp:
                         if resp.status != 200:
                             text = await resp.text()
-                            return make_response(False, "onedrive_search_document_libraries",
-                                                 f"❌ Error {resp.status}: {text}", [])
+                            return make_response(
+                                False,
+                                "onedrive_search_document_libraries",
+                                f"❌ Error {resp.status}: {text}",
+                                [],
+                            )
                         data = await resp.json()
                         for item in data.get("value", []):
-                            items.append({
-                                "name": item.get("name"),
-                                "id": item.get("id"),
-                                "drive_id": drive_id,
-                                "web_url": item.get("webUrl"),
-                                "size": item.get("size"),
-                                "mime_type": item.get("file", {}).get("mimeType") if item.get("file") else None,
-                                "is_folder": "folder" in item,
-                            })
+                            items.append(
+                                {
+                                    "name": item.get("name"),
+                                    "id": item.get("id"),
+                                    "drive_id": drive_id,
+                                    "web_url": item.get("webUrl"),
+                                    "size": item.get("size"),
+                                    "mime_type": (
+                                        item.get("file", {}).get("mimeType")
+                                        if item.get("file")
+                                        else None
+                                    ),
+                                    "is_folder": "folder" in item,
+                                }
+                            )
                 except Exception as e:
-                    return make_response(False, "onedrive_search_document_libraries",
-                                         f"❌ Exception while searching drive {drive_id}: {e}", [])
+                    return make_response(
+                        False,
+                        "onedrive_search_document_libraries",
+                        f"❌ Exception while searching drive {drive_id}: {e}",
+                        [],
+                    )
 
         summary = (
-            "\n".join(f"📄 {i['name']} ({'Folder' if i['is_folder'] else 'File'})" for i in items)
+            "\n".join(
+                f"📄 {i['name']} ({'Folder' if i['is_folder'] else 'File'})"
+                for i in items
+            )
             or f"No results found for query '{query}'."
         )
 
@@ -1170,11 +1221,13 @@ async def oauth2callback(request: Request):
     token_resp = requests.post(TOKEN_URL, data=data).json()
     access_token = token_resp.get("access_token")
     if not access_token:
-        return JSONResponse({"error": "OAuth failed", "details": token_resp}, status_code=400)
+        return JSONResponse(
+            {"error": "OAuth failed", "details": token_resp}, status_code=400
+        )
 
     userinfo = requests.get(
         "https://graph.microsoft.com/v1.0/me",
-        headers={"Authorization": f"Bearer {access_token}"}
+        headers={"Authorization": f"Bearer {access_token}"},
     ).json()
     email = userinfo.get("userPrincipalName") or userinfo.get("mail")
     if not email:
@@ -1182,13 +1235,15 @@ async def oauth2callback(request: Request):
 
     refresh_token = token_resp.get("refresh_token", None)
 
-    return JSONResponse({
-        "message": f"Authenticated as {email}",
-        "email": email,
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "code": code
-    })
+    return JSONResponse(
+        {
+            "message": f"Authenticated as {email}",
+            "email": email,
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "code": code,
+        }
+    )
 
 
 # ────── Starlette App ──────
@@ -1202,4 +1257,5 @@ app = Starlette(routes=routes, lifespan=mcp_app.lifespan)
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=PORT)
