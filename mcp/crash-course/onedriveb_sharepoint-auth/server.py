@@ -391,99 +391,176 @@ def search_file_content(
     return asyncio.run(inner())
 
 
+async def fetch_file_bytes(url: str) -> bytes | None:
+    """
+    Download file bytes from OneDrive given a direct download URL.
+
+    This function creates a new aiohttp session for each request,
+    retrieves the file contents, and returns the raw bytes.
+
+    Args:
+        url (str): Pre-authenticated download URL obtained from
+            `@microsoft.graph.downloadUrl`.
+
+    Returns:
+        bytes | None: Raw file bytes if the request succeeds, else None.
+    """
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                return await resp.read()
+    return None
+
+
+def extract_text(file_bytes: bytes, file_name: str) -> str:
+    """
+    Extract text from supported file types (.txt, .docx, .pdf).
+
+    Supported formats:
+        - `.txt` : UTF-8 decoded text
+        - `.docx`: Concatenated text from all paragraphs
+        - `.pdf` : Extracted text from each page
+
+    Args:
+        file_bytes (bytes): Raw bytes of the file.
+        file_name (str): File name (used to determine format).
+
+    Returns:
+        str: Extracted text content, or an empty string if format is unsupported.
+    """
+    if file_name.endswith(".txt"):
+        return file_bytes.decode("utf-8", errors="ignore")
+    elif file_name.endswith(".docx"):
+        return "\n".join(p.text for p in Document(BytesIO(file_bytes)).paragraphs)
+    elif file_name.endswith(".pdf"):
+        with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+            return "\n".join(page.get_text() for page in doc)
+    return ""
+
+
+async def search_file(client, file_item, drive_id: str, keyword: str) -> dict | None:
+    """
+    Search a single OneDrive file for a keyword.
+
+    Downloads the file, extracts its text (if supported), and checks if the keyword
+    exists in the content. Returns a metadata dictionary if matched.
+
+    Args:
+        client: Microsoft Graph API client (unused here but kept for interface consistency).
+        file_item: Graph API DriveItem object containing file metadata.
+        drive_id (str): ID of the drive containing the file.
+        keyword (str): Keyword to search for in the file content.
+
+    Returns:
+        dict | None: Metadata dict if keyword found, else None.
+            Keys:
+                - name (str)
+                - id (str)
+                - drive_id (str)
+                - web_url (str | None)
+                - size (int | None)
+                - mime_type (str | None)
+                - is_folder (bool)
+                - match (bool) (always True if returned)
+    """
+    download_url = file_item.additional_data.get("@microsoft.graph.downloadUrl")
+    if not download_url:
+        return None
+
+    file_bytes = await fetch_file_bytes(download_url)
+    if not file_bytes:
+        return None
+
+    text = extract_text(file_bytes, file_item.name)
+    if keyword.lower() not in text.lower():
+        return None
+
+    return {
+        "name": file_item.name,
+        "id": file_item.id,
+        "drive_id": drive_id,
+        "web_url": getattr(file_item, "web_url", None),
+        "size": getattr(file_item, "size", None),
+        "mime_type": file_item.file.mime_type if file_item.file else None,
+        "is_folder": bool(file_item.folder),
+        "match": True,
+    }
+
+
+async def recursive_search(
+    client, drive_id: str, current_folder_id: str, keyword: str
+) -> list:
+    """
+    Recursively search through a folder and its subfolders for keyword matches.
+
+    Traverses all child items in the given folder:
+        - Recurse into subfolders.
+        - If file is `.txt`, `.docx`, or `.pdf`, extract text and search for keyword.
+
+    Args:
+        client: Microsoft Graph API client for OneDrive/SharePoint.
+        drive_id (str): ID of the drive being searched.
+        current_folder_id (str): ID of the folder to start searching from.
+        keyword (str): Keyword to search for in file content.
+
+    Returns:
+        list[dict]: List of matching file metadata dictionaries.
+    """
+    results = []
+    children = (
+        await client.drives.by_drive_id(drive_id)
+        .items.by_drive_item_id(current_folder_id)
+        .children.get()
+    )
+    for item in children.value:
+        if item.folder:
+            results.extend(await recursive_search(client, drive_id, item.id, keyword))
+        elif item.name.lower().endswith((".txt", ".docx", ".pdf")):
+            file_result = await search_file(client, item, drive_id, keyword)
+            if file_result:
+                results.append(file_result)
+    return results
+
+
 @mcp.tool(name="onedrive_search_folder_for_content")
 def search_folder_for_content(
     metadata: Dict, drive_id: str, folder_id: str, keyword: str
 ) -> dict:
     """
-    Recursively search .txt, .docx, and .pdf files in a OneDrive folder for a keyword
-    and return a standardized response suitable for UI and tool chaining.
+    Recursively search for a keyword inside `.txt`, `.docx`, and `.pdf` files
+    in a specified OneDrive folder and its subfolders.
+
+    This function:
+        1. Authenticates with Microsoft Graph using metadata.
+        2. Recursively traverses the folder and subfolders.
+        3. Downloads and extracts text from supported file formats.
+        4. Filters files that contain the given keyword.
+        5. Returns standardized output for UI and tool chaining.
 
     Args:
-        metadata (Dict): Credentials metadata for authentication.
+        metadata (Dict): Authentication metadata containing user tokens.
         drive_id (str): ID of the OneDrive drive containing the folder.
-        folder_id (str): ID of the folder to search.
-        keyword (str): Keyword to search for inside files.
+        folder_id (str): ID of the folder to start searching in.
+        keyword (str): Keyword to search for inside file contents.
 
     Returns:
         dict: Standardized `make_response` output containing:
             - success (bool): True if search completed without errors.
             - action (str): Tool/action name (`onedrive_search_folder_for_content`).
-            - message (str): Human-readable summary for UI (no IDs shown).
-            - data (list[dict]): Metadata for each matching file, including:
-                - name (str)  -- safe for UI
-                - id (str)  -- NOT safe for UI, for internal tool chaining
-                - drive_id (str)  -- NOT safe for UI, for internal tool chaining
-                - web_url (str | None)  -- safe for UI
+            - message (str): Human-readable summary for UI.
+            - data (list[dict]): Matching file metadata dictionaries, each with:
+                - name (str)
+                - id (str)
+                - drive_id (str)
+                - web_url (str | None)
                 - size (int | None)
-                - mime_type (str | None)  -- safe for UI
+                - mime_type (str | None)
                 - is_folder (bool)
-                - match (bool) -- always True for returned files
+                - match (bool)
     """
 
-    async def fetch_file_bytes(url: str) -> bytes | None:
-        """Download file bytes from OneDrive."""
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status == 200:
-                    return await resp.read()
-        return None
-
-    def extract_text(file_bytes: bytes, file_name: str) -> str:
-        """Extract text from supported file types."""
-        if file_name.endswith(".txt"):
-            return file_bytes.decode("utf-8", errors="ignore")
-        elif file_name.endswith(".docx"):
-            return "\n".join(p.text for p in Document(BytesIO(file_bytes)).paragraphs)
-        elif file_name.endswith(".pdf"):
-            with fitz.open(stream=file_bytes, filetype="pdf") as doc:
-                return "\n".join(page.get_text() for page in doc)
-        return ""
-
-    async def search_file(client, file_item):
-        """Search a single file for the keyword and return metadata if matched."""
-        download_url = file_item.additional_data.get("@microsoft.graph.downloadUrl")
-        if not download_url:
-            return None
-
-        file_bytes = await fetch_file_bytes(download_url)
-        if not file_bytes:
-            return None
-
-        text = extract_text(file_bytes, file_item.name)
-        if keyword.lower() not in text.lower():
-            return None
-
-        return {
-            "name": file_item.name,
-            "id": file_item.id,
-            "drive_id": drive_id,
-            "web_url": getattr(file_item, "web_url", None),
-            "size": getattr(file_item, "size", None),
-            "mime_type": file_item.file.mime_type if file_item.file else None,
-            "is_folder": bool(file_item.folder),
-            "match": True,
-        }
-
-    async def recursive_search(client, current_folder_id: str) -> list:
-        """Recursively search all files in a folder for the keyword."""
-        results = []
-        children = (
-            await client.drives.by_drive_id(drive_id)
-            .items.by_drive_item_id(current_folder_id)
-            .children.get()
-        )
-        for item in children.value:
-            if item.folder:
-                results.extend(await recursive_search(client, item.id))
-            elif item.name.lower().endswith((".txt", ".docx", ".pdf")):
-                file_result = await search_file(client, item)
-                if file_result:
-                    results.append(file_result)
-        return results
-
     async def inner():
-        """Async implementation for recursive folder search with standardized output."""
+        """Async wrapper for authentication, recursive search, and response building."""
         client = await get_graph_client(metadata)
         if not client:
             return make_response(
@@ -491,7 +568,7 @@ def search_folder_for_content(
             )
 
         try:
-            matches = await recursive_search(client, folder_id)
+            matches = await recursive_search(client, drive_id, folder_id, keyword)
             if not matches:
                 return make_response(
                     True,
