@@ -360,7 +360,9 @@ async def async_get_file_info(client, drive_id: str, file_id: str):
 
 
 @mcp.tool(name="onedrive_search_file_content")
-def search_file_content(metadata: Dict, drive_id: str, file_id: str, keyword: str) -> dict:
+def search_file_content(
+    metadata: Dict, drive_id: str, file_id: str, keyword: str
+) -> dict:
     """
     Search for a keyword inside a OneDrive file (.txt, .docx, .pdf).
 
@@ -393,30 +395,42 @@ def search_file_content(metadata: Dict, drive_id: str, file_id: str, keyword: st
         - Only `.txt`, `.docx`, `.pdf` files are supported for content search.
         - Response is designed for chaining into other MCP tools.
     """
+
     async def inner():
         client = await get_graph_client(metadata)
         if not client:
-            return make_response(False, "onedrive_search_file_content", "❌ Not authorized.", [])
+            return make_response(
+                False, "onedrive_search_file_content", "❌ Not authorized.", []
+            )
 
         file_item, download_url = await async_get_file_info(client, drive_id, file_id)
         if not (file_item and download_url):
-            return make_response(False, "onedrive_search_file_content", "❌ Could not access file.", [])
+            return make_response(
+                False, "onedrive_search_file_content", "❌ Could not access file.", []
+            )
 
         content = await async_fetch_and_extract_text(download_url, file_item.name)
         if content is None:
-            return make_response(False, "onedrive_search_file_content", "❌ Could not extract content.", [])
+            return make_response(
+                False,
+                "onedrive_search_file_content",
+                "❌ Could not extract content.",
+                [],
+            )
 
         match = keyword.lower() in content.lower()
-        data = [{
-            "name": file_item.name,
-            "id": file_item.id,
-            "drive_id": drive_id,
-            "web_url": getattr(file_item, "web_url", None),
-            "size": getattr(file_item, "size", None),
-            "mime_type": file_item.file.mime_type if file_item.file else None,
-            "is_folder": bool(file_item.folder),
-            "match": match,
-        }]
+        data = [
+            {
+                "name": file_item.name,
+                "id": file_item.id,
+                "drive_id": drive_id,
+                "web_url": getattr(file_item, "web_url", None),
+                "size": getattr(file_item, "size", None),
+                "mime_type": file_item.file.mime_type if file_item.file else None,
+                "is_folder": bool(file_item.folder),
+                "match": match,
+            }
+        ]
         msg = f"Keyword {'found' if match else 'not found'} in '{file_item.name}'."
         return make_response(True, "onedrive_search_file_content", msg, data)
 
@@ -456,29 +470,38 @@ def get_file_content(metadata: Dict, drive_id: str, file_id: str) -> dict:
         - Designed for LLM ingestion, indexing, or summarization pipelines.
         - Supports `.txt`, `.docx`, and `.pdf`. Unsupported formats return an error.
     """
+
     async def inner():
         client = await get_graph_client(metadata)
         if not client:
-            return make_response(False, "onedrive_get_file_content", "❌ Not authorized.", [])
+            return make_response(
+                False, "onedrive_get_file_content", "❌ Not authorized.", []
+            )
 
         file_item, download_url = await async_get_file_info(client, drive_id, file_id)
         if not (file_item and download_url):
-            return make_response(False, "onedrive_get_file_content", "❌ Could not access file.", [])
+            return make_response(
+                False, "onedrive_get_file_content", "❌ Could not access file.", []
+            )
 
         content = await async_fetch_and_extract_text(download_url, file_item.name)
         if content is None:
-            return make_response(False, "onedrive_get_file_content", "❌ Could not extract content.", [])
+            return make_response(
+                False, "onedrive_get_file_content", "❌ Could not extract content.", []
+            )
 
-        data = [{
-            "name": file_item.name,
-            "id": file_item.id,
-            "drive_id": drive_id,
-            "web_url": getattr(file_item, "web_url", None),
-            "size": getattr(file_item, "size", None),
-            "mime_type": file_item.file.mime_type if file_item.file else None,
-            "is_folder": bool(file_item.folder),
-            "content": content,
-        }]
+        data = [
+            {
+                "name": file_item.name,
+                "id": file_item.id,
+                "drive_id": drive_id,
+                "web_url": getattr(file_item, "web_url", None),
+                "size": getattr(file_item, "size", None),
+                "mime_type": file_item.file.mime_type if file_item.file else None,
+                "is_folder": bool(file_item.folder),
+                "content": content,
+            }
+        ]
         msg = f"Successfully retrieved content for '{file_item.name}'."
         return make_response(True, "onedrive_get_file_content", msg, data)
 
@@ -682,9 +705,6 @@ def search_folder_for_content(
     return asyncio.run(inner())
 
 
-
-
-
 @mcp.tool(name="onedrive_list_all_drives")
 def list_all_drives(metadata: Dict) -> dict:
     """
@@ -840,7 +860,9 @@ def list_children_in_drive_item(
 @mcp.tool(name="onedrive_find_files_by_name")
 def find_files_by_name(metadata: Dict, keyword: str, folder_id: str = "root") -> str:
     """
-    Recursively search for files by name in user's default OneDrive.
+    Recursively search for files by name in the user's default OneDrive,
+    returning a standardized JSON list of matches including drive_id, file_id,
+    web_url, and name, suitable for tool chaining.
 
     Args:
         metadata (Dict): Credentials metadata for authentication.
@@ -848,12 +870,16 @@ def find_files_by_name(metadata: Dict, keyword: str, folder_id: str = "root") ->
         folder_id (str, optional): Folder ID to start search. Defaults to "root".
 
     Returns:
-        str: JSON string of matching files or error message.
+        str: JSON string of matching files. Each file dict contains:
+            - name (str): File name (UI safe)
+            - id (str): File ID (internal tool chaining)
+            - drive_id (str): Drive ID (internal tool chaining)
+            - web_url (str | None): File web URL (UI safe)
     """
-
     folder_id = sanitize_folder_id(folder_id)
 
     async def get_preferred_drive(client):
+        """Return the user's preferred OneDrive ID."""
         result = await client.me.drives.get()
         for drive in result.value:
             if drive.name == "OneDrive":
@@ -863,6 +889,7 @@ def find_files_by_name(metadata: Dict, keyword: str, folder_id: str = "root") ->
         raise Exception("No drives found.")
 
     async def recursive_search(client, drive_id, folder_id, keyword):
+        """Recursively search folder for files matching the keyword."""
         matches = []
         response = (
             await client.drives.by_drive_id(drive_id)
@@ -873,21 +900,27 @@ def find_files_by_name(metadata: Dict, keyword: str, folder_id: str = "root") ->
         for item in response.value:
             if keyword.lower() in item.name.lower():
                 matches.append(
-                    {"name": item.name, "id": item.id, "web_url": item.web_url}
+                    {
+                        "name": item.name,
+                        "id": item.id,
+                        "drive_id": drive_id,
+                        "web_url": getattr(item, "web_url", None),
+                    }
                 )
             if item.folder:
                 matches += await recursive_search(client, drive_id, item.id, keyword)
         return matches
 
     async def main():
+        """Main async entry point for finding files."""
         client = await get_graph_client(metadata)
         if not client:
-            return "❌ Not authorized."
+            return json.dumps({"error": "❌ Not authorized."})
         drive_id = await get_preferred_drive(client)
-        return await recursive_search(client, drive_id, folder_id, keyword)
+        matches = await recursive_search(client, drive_id, folder_id, keyword)
+        return json.dumps(matches)
 
-    result = asyncio.run(main())
-    return json.dumps(result)
+    return asyncio.run(main())
 
 
 @mcp.tool(name="sharepoint_list_sites")
