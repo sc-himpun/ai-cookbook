@@ -437,10 +437,10 @@ def search_file_content(
     return asyncio.run(inner())
 
 
-@mcp.tool(name="onedrive_get_file_content")
+@mcp.tool(name="onedrive_sharepoint_get_file_content")
 def get_file_content(metadata: Dict, drive_id: str, file_id: str) -> dict:
     """
-    Download and extract the plain text content of a OneDrive file.
+    Download and extract the plain text content of a OneDrive or sharepoint shared library file.
 
     Uses Microsoft Graph API to fetch the file, download its content, and parse
     supported formats (`.txt`, `.docx`, `.pdf`). Returns a standardized response
@@ -448,13 +448,13 @@ def get_file_content(metadata: Dict, drive_id: str, file_id: str) -> dict:
 
     Args:
         metadata (Dict): Credentials metadata for Microsoft Graph authentication.
-        drive_id (str): OneDrive drive ID containing the file.
+        drive_id (str): OneDrive drive ID containing the file or shared library drive id from sharepoint.
         file_id (str): File ID within the drive.
 
     Returns:
         dict: Standardized `make_response` dictionary with:
             - success (bool): True if operation succeeded.
-            - action (str): "onedrive_get_file_content".
+            - action (str): "onedrive_sharepoint_get_file_content".
             - message (str): Human-readable summary ("Successfully retrieved...").
             - data (list[dict]): Single-item list with:
                 - name (str): File name (UI safe).
@@ -475,19 +475,19 @@ def get_file_content(metadata: Dict, drive_id: str, file_id: str) -> dict:
         client = await get_graph_client(metadata)
         if not client:
             return make_response(
-                False, "onedrive_get_file_content", "❌ Not authorized.", []
+                False, "onedrive_sharepoint_get_file_content", "❌ Not authorized.", []
             )
 
         file_item, download_url = await async_get_file_info(client, drive_id, file_id)
         if not (file_item and download_url):
             return make_response(
-                False, "onedrive_get_file_content", "❌ Could not access file.", []
+                False, "onedrive_sharepoint_get_file_content", "❌ Could not access file.", []
             )
 
         content = await async_fetch_and_extract_text(download_url, file_item.name)
         if content is None:
             return make_response(
-                False, "onedrive_get_file_content", "❌ Could not extract content.", []
+                False, "onedrive_sharepoint_get_file_content", "❌ Could not extract content.", []
             )
 
         data = [
@@ -503,7 +503,7 @@ def get_file_content(metadata: Dict, drive_id: str, file_id: str) -> dict:
             }
         ]
         msg = f"Successfully retrieved content for '{file_item.name}'."
-        return make_response(True, "onedrive_get_file_content", msg, data)
+        return make_response(True, "onedrive_sharepoint_get_file_content", msg, data)
 
     return asyncio.run(inner())
 
@@ -1085,7 +1085,7 @@ def sharepoint_list_drive_items(
     metadata: Dict, drive_id: str, folder_id: str = "root"
 ) -> dict:
     """
-    List items in a SharePoint document library (drive) folder.
+    List items in a SharePoint document library (drive) folder. (DON'T use this for files)
 
     This tool normalizes responses from Microsoft Graph into a safe,
     standardized format for LLM use and tool chaining.
@@ -1114,6 +1114,8 @@ def sharepoint_list_drive_items(
                 - is_folder (bool) -- True if folder, False if file
 
     Notes:
+        - This tool only works for folders (NOT For Files).
+        - If `is_folder` is false, use `onedrive_sharepoint_get_file_content` with the `drive_id` and `id` from the item.
         - If `drive_id` is in complex format, only the last segment is used.
         - site_id should not be passed in-place of drive_id.
         - Items are returned both as a UI-friendly summary and structured data.

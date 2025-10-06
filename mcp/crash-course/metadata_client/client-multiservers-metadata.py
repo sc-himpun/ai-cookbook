@@ -44,22 +44,13 @@ class MCPOpenAIClient:
         servers = {
             # "s3": "http://localhost:8050/sse",
             #"s3": "http://localhost:8059/sse",
-            "vector": "http://localhost:8060/sse",
-            #"gdrive": "http://localhost:8051/sse",
-            #"github": "http://localhost:8052/sse",
-            #"youtrack": "http://localhost:8053/sse",
-            #"slack": "http://localhost:8054/sse",
-            #"zoom": "http://localhost:8055/sse",
-            ##"azure": "http://192.168.29.53:5008/sse",
-            #"azure": "http://localhost:5008/sse",
-            #"onedrive": "http://localhost:8056/sse",
-            #"onedrive-business_sharepoint": "http://localhost:8057/sse",
-            "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
+            # "vector": "http://localhost:8060/sse",
+          
+            # "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
             # "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
             # "jira": "http://localhost:8002/mcp-server/sse/",
             #"gitlab": "http://localhost:8017/mcp-server/sse/",
             #"github": "http://localhost:8010/mcp-server/sse/",
-            #"youtrack": "http://localhost:8053/sse/",
             #"s3": "http://localhost:8050/sse/",
             #"odata": "http://localhost:8016/mcp-server/sse/",
             #"asana": "http://localhost:8011/mcp-server/sse/",
@@ -69,24 +60,24 @@ class MCPOpenAIClient:
             #"confluence": "http://localhost:8071/mcp-server/sse",
             #"zoom": "http://localhost:8019/mcp-server/sse",
             # "box": "http://localhost:8029/mcp-server/sse",
-            
+            # "slack": "http://localhost:8003/mcp-server/sse"
             ################################################,
 
             # "gmail-gdrive": "http://10.1.1.22:8000/mcp-server/sse",
-            # # "jira": "http://10.1.1.22:8002/mcp-server/sse",
+            # "jira": "http://10.1.1.22:8002/mcp-server/sse",
             # "onedrive-business_sharepoint": "http://10.1.1.22:8007/mcp-server/sse",
             # "gitlab": "http://10.1.1.22:8017/mcp-server/sse",
             # "github": "http://10.1.1.22:8010/mcp-server/sse",
             # "youtrack": "http://10.1.1.22:8053/mcp-server/sse",
             # "s3": "http://10.1.1.22:8050/sse",
-            # # "odata": "http://10.1.1.22:8016/mcp-server/sse",
+            # "odata": "http://10.1.1.22:8016/mcp-server/sse",
             # "asana": "http://10.1.1.22:8011/mcp-server/sse",
-            # # "salesforce": "http://10.1.1.22:8091/mcp-server/sse",
-            # # "confluence": "http://10.1.1.22:8071/mcp-server/sse",
+            # "salesforce": "http://10.1.1.22:8091/mcp-server/sse",
+            # "confluence": "http://10.1.1.22:8071/mcp-server/sse",
             # "zoom": "http://10.1.1.22:8019/mcp-server/sse",
             # "box": "http://10.1.1.22:8029/mcp-server/sse",
-
-            
+            # "zendesk": "http://10.1.1.22:9150/mcp-server/sse/",      
+            "slack": "http://10.1.1.22:8003/mcp-server/sse"      
             }
 
         total_tools = 0
