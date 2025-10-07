@@ -25,8 +25,7 @@ SLACK_SCOPES = os.getenv(
     "users:read,users:read.email,channels:read,groups:read,im:read,mpim:read,chat:write,channels:history",
 )
 
-user_tokens: Dict[str, str] = {}  # email -> access token
-
+user_tokens: Dict[str, str] = {}
 mcp = FastMCP("SlackToolkit")
 
 # ─── Tools ─────────────────────────────────────────────────────────────────
@@ -664,6 +663,6 @@ if __name__ == "__main__":
         app,
         host="0.0.0.0",
         port=PORT,
-        # ssl_keyfile="localhost-key.pem",
+        # ssl_keyfile="localhost-key.pem", #For authentication, it requires a valid certificate and key
         # ssl_certfile="localhost.pem"
     )
