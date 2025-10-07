@@ -60,7 +60,7 @@ class MCPOpenAIClient:
             #"confluence": "http://localhost:8071/mcp-server/sse",
             #"zoom": "http://localhost:8019/mcp-server/sse",
             # "box": "http://localhost:8029/mcp-server/sse",
-            # "slack": "http://localhost:8003/mcp-server/sse"
+            "slack": "http://localhost:8003/mcp-server/sse"
             ################################################,
 
             # "gmail-gdrive": "http://10.1.1.22:8000/mcp-server/sse",
@@ -77,7 +77,7 @@ class MCPOpenAIClient:
             # "zoom": "http://10.1.1.22:8019/mcp-server/sse",
             # "box": "http://10.1.1.22:8029/mcp-server/sse",
             # "zendesk": "http://10.1.1.22:9150/mcp-server/sse/",      
-            "slack": "http://10.1.1.22:8003/mcp-server/sse"      
+            # "slack": "http://10.1.1.22:8003/mcp-server/sse"      
             }
 
         total_tools = 0

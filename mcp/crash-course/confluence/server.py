@@ -9,7 +9,7 @@ from starlette.routing import Route, Mount
 from starlette.responses import JSONResponse, RedirectResponse
 from starlette.requests import Request
 from urllib.parse import quote_plus
-import uuid 
+import uuid
 
 
 # ─── Config ──────────────────────────────────────────────────────────────
@@ -17,13 +17,17 @@ load_dotenv()
 CLIENT_ID = os.getenv("CONFLUENCE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("CONFLUENCE_CLIENT_SECRET")
 print(CLIENT_ID, CLIENT_SECRET)
-SCOPES = os.getenv(
-    "CONFLUENCE_SCOPES"
-    , "offline_access write:confluence-content read:me read:confluence-space.summary read:confluence-props read:confluence-content.all read:confluence-content.summary search:confluence read:confluence-user"
-).split()
+DEFAULT_SCOPES = (
+    "offline_access write:confluence-content read:me "
+    "read:confluence-space.summary read:confluence-props "
+    "read:confluence-content.all read:confluence-content.summary "
+    "search:confluence read:confluence-user"
+)
+SCOPES = os.getenv("CONFLUENCE_SCOPES", DEFAULT_SCOPES).split()
 
 PORT = int(os.getenv("CONFLUENCE_MCP_PORT", "8003"))
-REDIRECT_URI = os.getenv("CONFLUENCE_MCP_REDIRECT_URI", f"http://localhost:{PORT}/oauth2callback")
+REDIRECT_URI = os.getenv("CONFLUENCE_MCP_REDIRECT_URI",
+                         f"http://localhost:{PORT}/oauth2callback")
 
 # ─── Token Store ──────────────────────────────────────────────────────────
 user_tokens: Dict[str, Dict] = {}
@@ -33,7 +37,15 @@ mcp = FastMCP("confluence-mcp")
 
 
 def is_access_token_valid(access_token: str) -> bool:
-    """Check if access token is still valid by hitting /me endpoint."""
+    """
+    Check if the provided Confluence access token is still valid by making a request to the /me endpoint.
+
+    Args:
+        access_token (str): The OAuth access token to validate.
+
+    Returns:
+        bool: True if the token is valid, False otherwise.
+    """
     resp = requests.get(
         "https://api.atlassian.com/me",
         headers={"Authorization": f"Bearer {access_token}"}
@@ -42,7 +54,15 @@ def is_access_token_valid(access_token: str) -> bool:
 
 
 def refresh_confluence_token(refresh_token: str) -> Optional[Dict]:
-    """Refresh Confluence OAuth 2.0 access token."""
+    """
+    Refresh the Confluence OAuth 2.0 access token using a refresh token.
+
+    Args:
+        refresh_token (str): The refresh token obtained during initial authentication.
+
+    Returns:
+        Optional[Dict]: The new token response dictionary if successful, None otherwise.
+    """
     token_url = "https://auth.atlassian.com/oauth/token"
     payload = {
         "grant_type": "refresh_token",
@@ -59,7 +79,15 @@ def refresh_confluence_token(refresh_token: str) -> Optional[Dict]:
 
 
 def get_confluence_creds(metadata: Optional[Dict]) -> Optional[Dict]:
-    """Extract Confluence credentials and refresh if needed."""
+    """
+    Extract Confluence credentials from metadata and refresh the access token if needed.
+
+    Args:
+        metadata (Optional[Dict]): Metadata containing Confluence credentials or a nested 'confluence' key.
+
+    Returns:
+        Optional[Dict]: Dictionary with valid credentials (email, access_token, refresh_token, cloud_id, base_url), or None if missing/invalid.
+    """
     if not metadata:
         return None
     creds = metadata.get("confluence", metadata)
@@ -73,7 +101,13 @@ def get_confluence_creds(metadata: Optional[Dict]) -> Optional[Dict]:
         return None
 
     if is_access_token_valid(access_token):
-        return {"email": email, "access_token": access_token, "refresh_token": refresh_token, "cloud_id": cloud_id, "base_url": base_url}
+        return {
+            "email": email,
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "cloud_id": cloud_id,
+            "base_url": base_url
+        }
 
     if refresh_token:
         new_tokens = refresh_confluence_token(refresh_token)
@@ -92,8 +126,38 @@ def get_confluence_creds(metadata: Optional[Dict]) -> Optional[Dict]:
 # ─── Tools ──────────────────────────────────────────────────────────────
 @mcp.tool(name="confluence_search_pages")
 def search_pages(metadata: Dict, query: str) -> Union[str, List[Dict[str, str]]]:
-    """Search Confluence pages by CQL (title/content) using v1 API.
-    Returns a list of dicts with id, title, space, and page URL.
+    """
+    Search Confluence pages by CQL (title/content) using the v1 API.
+
+    This function queries Confluence for pages whose title or content matches the provided query string.
+    It returns a list of dictionaries containing page details, including id, title, space name, space key, and page URL.
+
+    Args:
+        metadata (Dict): Dictionary containing Confluence credentials (access_token, cloud_id, base_url).
+        query (str): The search query string to match against page titles or content.
+
+    Returns:
+        Union[str, List[Dict[str, str]]]:
+            - On success: A list of dictionaries, each with keys:
+                - id: The page ID.
+                - title: The page title.
+                - space: The name of the space containing the page.
+                - space_key: The key of the space (if available).
+                - url: The full URL to the page (if available).
+            - On failure: A string or list with an error message.
+
+    Example:
+        >>> search_pages(metadata, "project plan")
+        [
+            {
+                "id": "12345",
+                "title": "Project Plan",
+                "space": "Engineering",
+                "space_key": "ENG",
+                "url": "https://your-domain/wiki/spaces/ENG/pages/12345"
+            },
+            ...
+        ]
     """
     creds = get_confluence_creds(metadata)
     if not creds:
@@ -101,7 +165,8 @@ def search_pages(metadata: Dict, query: str) -> Union[str, List[Dict[str, str]]]
     access_token, cloud_id = creds["access_token"], creds["cloud_id"]
 
     url = f"https://api.atlassian.com/ex/confluence/{cloud_id}/wiki/rest/api/search"
-    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    headers = {"Authorization": f"Bearer {access_token}",
+               "Accept": "application/json"}
     params = {
         "cql": f'type=page AND (title ~ "{query}" OR text ~ "{query}")',
         "limit": 5,
@@ -144,8 +209,11 @@ def search_pages(metadata: Dict, query: str) -> Union[str, List[Dict[str, str]]]
 
     return formatted
 
+
 @mcp.tool(name="confluence_get_space_details")
-def get_space(metadata: Dict, space_id: Optional[str] = None, space_key: Optional[str] = None) -> Union[str, Dict[str, str]]:
+def get_space(
+    metadata: Dict, space_id: Optional[str] = None, space_key: Optional[str] = None
+) -> Union[str, Dict[str, str]]:
     """
     Retrieve Confluence space details.
 
@@ -180,7 +248,8 @@ def get_space(metadata: Dict, space_id: Optional[str] = None, space_key: Optiona
         return "❌ Confluence credentials not found."
     access_token, cloud_id = creds["access_token"], creds["cloud_id"]
 
-    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    headers = {"Authorization": f"Bearer {access_token}",
+               "Accept": "application/json"}
 
     # Case 1: Lookup by space_id
     if space_id:
@@ -188,6 +257,7 @@ def get_space(metadata: Dict, space_id: Optional[str] = None, space_key: Optiona
         resp = requests.get(url, headers=headers)
         if resp.status_code != 200:
             return f"❌ Failed: {resp.status_code} - {resp.text}"
+
         data = resp.json()
         return {
             "id": data.get("id"),
@@ -216,14 +286,24 @@ def get_space(metadata: Dict, space_id: Optional[str] = None, space_key: Optiona
 
 @mcp.tool(name="confluence_get_page_content")
 def get_page_content(metadata: Dict, page_id: str):
-    """Fetch the body of a Confluence page (storage format)."""
+    """
+    Fetch the body content of a Confluence page in storage format.
+
+    Args:
+        metadata (Dict): Dictionary containing Confluence credentials.
+        page_id (str): The ID of the Confluence page to fetch.
+
+    Returns:
+        str: The page title and body content in storage format, or an error message if credentials are missing.
+    """
     creds = get_confluence_creds(metadata)
     if not creds:
         return "❌ Confluence credentials not found."
     access_token, cloud_id = creds["access_token"], creds["cloud_id"]
 
     url = f"https://api.atlassian.com/ex/confluence/{cloud_id}/wiki/api/v2/pages/{page_id}?body-format=storage"
-    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    headers = {"Authorization": f"Bearer {access_token}",
+               "Accept": "application/json"}
 
     resp = requests.get(url, headers=headers).json()
     title = resp.get("title", "N/A")
@@ -233,7 +313,18 @@ def get_page_content(metadata: Dict, page_id: str):
 
 @mcp.tool(name="confluence_create_page")
 def create_page(metadata: Dict, space_id: str, title: str, content: str):
-    """Create a new Confluence page in a space (needs spaceId)."""
+    """
+    Create a new Confluence page in the specified space using the REST API v2.
+
+    Args:
+        metadata (Dict): Dictionary containing Confluence credentials.
+        space_id (str): The ID of the space where the page will be created.
+        title (str): The title of the new page.
+        content (str): The body content of the page in storage format.
+
+    Returns:
+        str: Success message if the page is created, or error message if creation fails.
+    """
     creds = get_confluence_creds(metadata)
     if not creds:
         return "❌ Confluence credentials not found."
@@ -258,7 +349,9 @@ def create_page(metadata: Dict, space_id: str, title: str, content: str):
 
 
 @mcp.tool(name="confluence_add_footer_comment")
-def add_comment(metadata: Dict, page_id: str, comment: str, parent_comment_id: str = ""):
+def add_comment(
+    metadata: Dict, page_id: str, comment: str, parent_comment_id: str = ""
+):
     """
     Add a footer comment to a Confluence page.
 
@@ -296,6 +389,7 @@ def add_comment(metadata: Dict, page_id: str, comment: str, parent_comment_id: s
         return f"✅ Comment added to page {page_id}"
     else:
         return f"❌ Failed: {resp.status_code} - {resp.text}"
+
 
 @mcp.tool(name="confluence_get_footer_comments")
 def get_footer_comments(
@@ -435,14 +529,23 @@ def get_footer_comment_by_id(
 
 @mcp.tool(name="confluence_list_spaces")
 def list_spaces(metadata: Dict):
-    """List available Confluence spaces."""
+    """
+    List all available Confluence spaces for the authenticated user.
+
+    Args:
+        metadata (Dict): Dictionary containing Confluence credentials.
+
+    Returns:
+        str: A formatted string listing all space names, IDs, and keys, or an error message if request fails.
+    """
     creds = get_confluence_creds(metadata)
     if not creds:
         return "❌ Confluence credentials not found."
     access_token, cloud_id = creds["access_token"], creds["cloud_id"]
 
     url = f"https://api.atlassian.com/ex/confluence/{cloud_id}/wiki/api/v2/spaces"
-    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    headers = {"Authorization": f"Bearer {access_token}",
+               "Accept": "application/json"}
     resp = requests.get(url, headers=headers)
 
     if resp.status_code != 200:
@@ -455,7 +558,12 @@ def list_spaces(metadata: Dict):
 
 
 @mcp.tool(name="confluence_update_page")
-def update_page(metadata: Dict, page_id: str, new_content: str, new_title: Optional[str] = None):
+def update_page(
+    metadata: Dict,
+    page_id: str,
+    new_content: str,
+    new_title: Optional[str] = None,
+):
     """
     Update an existing Confluence page (REST API v2).
 
@@ -472,7 +580,8 @@ def update_page(metadata: Dict, page_id: str, new_content: str, new_title: Optio
 
     # Step 1: Get current page details to fetch version
     url = f"https://api.atlassian.com/ex/confluence/{cloud_id}/wiki/api/v2/pages/{page_id}"
-    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    headers = {"Authorization": f"Bearer {access_token}",
+               "Accept": "application/json"}
     page = requests.get(url, headers=headers).json()
 
     current_version = page.get("version", {}).get("number", 1)
@@ -502,17 +611,27 @@ def update_page(metadata: Dict, page_id: str, new_content: str, new_title: Optio
         return f"❌ Failed: {resp.status_code} - {resp.text}"
 
 
-
 @mcp.tool(name="confluence_list_pages")
 def list_pages_in_space(metadata: Dict, space_id: str, limit: int = 10):
-    """List pages in a given Confluence space (default: first 10)."""
+    """
+    List pages in a given Confluence space.
+
+    Args:
+        metadata (Dict): Dictionary containing Confluence credentials.
+        space_id (str): The ID of the space to list pages from.
+        limit (int, optional): Maximum number of pages to return. Default is 10.
+
+    Returns:
+        str: A formatted string listing page titles and IDs, or an error message if request fails.
+    """
     creds = get_confluence_creds(metadata)
     if not creds:
         return "❌ Confluence credentials not found."
     access_token, cloud_id = creds["access_token"], creds["cloud_id"]
 
     url = f"https://api.atlassian.com/ex/confluence/{cloud_id}/wiki/api/v2/spaces/{space_id}/pages"
-    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    headers = {"Authorization": f"Bearer {access_token}",
+               "Accept": "application/json"}
     params = {"limit": limit}
 
     resp = requests.get(url, headers=headers, params=params)
@@ -532,7 +651,7 @@ def get_page_attachments(metadata: Dict, page_id: str):
     """
     List all attachments for a Confluence page.
 
-    Requires granular scopes: 
+    Requires granular scopes:
       - read:content:confluence
       - read:attachment:confluence
 
@@ -544,7 +663,8 @@ def get_page_attachments(metadata: Dict, page_id: str):
     access_token, cloud_id = creds["access_token"], creds["cloud_id"]
 
     url = f"https://api.atlassian.com/ex/confluence/{cloud_id}/wiki/api/v2/pages/{page_id}/attachments"
-    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    headers = {"Authorization": f"Bearer {access_token}",
+               "Accept": "application/json"}
 
     resp = requests.get(url, headers=headers)
     if resp.status_code != 200:
@@ -562,14 +682,17 @@ def get_page_attachments(metadata: Dict, page_id: str):
     return attachments or "ℹ️ No attachments found."
 
 
-@mcp.tool(name="confluence_get_authorization_url")
-def get_authorization_url() -> str:
-    """Return URL for user to authorize Confluence access."""
-    return f"http://localhost:{PORT}/authorize"
-
-
 # ─── Auth Flow ──────────────────────────────────────────────────────────
 async def authorize(request: Request):
+    """
+    Starlette route handler to redirect the user to the Confluence OAuth authorization URL.
+
+    Args:
+        request (Request): The incoming HTTP request object.
+
+    Returns:
+        RedirectResponse: Redirects the user to the Confluence OAuth authorization page.
+    """
     scope = " ".join(SCOPES)
     state = str(uuid.uuid4())  # or pull from request/session
 
@@ -589,8 +712,18 @@ async def authorize(request: Request):
 
 
 async def oauth2callback(request: Request):
+    """
+    Starlette route handler for the Confluence OAuth2 callback.
+    Exchanges the authorization code for access and refresh tokens, fetches user info and Confluence cloud details.
+
+    Args:
+        request (Request): The incoming HTTP request object containing the authorization code.
+
+    Returns:
+        JSONResponse: Contains authentication result, user email, access token, refresh token, cloud ID, base URL, and granted scopes.
+    """
     code = request.query_params.get("code")
-    state = request.query_params.get("state")
+    # state = request.query_params.get("state")
 
     if not code:
         return JSONResponse({"error": "Missing code"}, status_code=400)
@@ -602,7 +735,8 @@ async def oauth2callback(request: Request):
         "code": code,
         "redirect_uri": REDIRECT_URI,
     }
-    token_resp = requests.post("https://auth.atlassian.com/oauth/token", json=data).json()
+    token_resp = requests.post(
+        "https://auth.atlassian.com/oauth/token", json=data).json()
     access_token = token_resp.get("access_token")
     refresh_token = token_resp.get("refresh_token")
     scopes_granted = token_resp.get("scope", "").split()
@@ -621,8 +755,8 @@ async def oauth2callback(request: Request):
     resources = requests.get(
         "https://api.atlassian.com/oauth/token/accessible-resources",
         headers={"Authorization": f"Bearer {access_token}"}
-        ).json()
-    
+    ).json()
+
     print("Accessible resources:", resources)
 
     # Just take the first resource with Confluence scopes
@@ -647,8 +781,16 @@ async def oauth2callback(request: Request):
     })
 
 
-
 async def status(request: Request):
+    """
+    Starlette route handler to check authentication status for a given email.
+
+    Args:
+        request (Request): The incoming HTTP request object containing the email query parameter.
+
+    Returns:
+        JSONResponse: Returns status 'authenticated' if the email is found in user_tokens, otherwise 'pending'.
+    """
     email = request.query_params.get("email")
     if email in user_tokens:
         return JSONResponse({"status": "authenticated"})
