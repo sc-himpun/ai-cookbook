@@ -573,7 +573,7 @@ def get_page_content(metadata: Dict, page_id: str) -> dict:
     title = data.get("title", "N/A")
     body = data.get("body", {}).get("storage", {}).get("value", "")
     webui_path = data.get("_links", {}).get("webui", "")
-    page_url = f"{base_url}{webui_path}" if webui_path else None
+    page_url = f"{base_url}/wiki{webui_path}" if webui_path else None
 
     return make_response(
         success=True,
@@ -691,7 +691,7 @@ def create_page(metadata: Dict, space_id: str, title: str, content: str) -> dict
     data = resp.json()
     page_id = data.get("id")
     webui_path = data.get("_links", {}).get("webui", "")
-    page_url = f"{base_url}{webui_path}" if webui_path else None
+    page_url = f"{base_url}/wiki{webui_path}" if webui_path else None
 
     return make_response(
         success=True,
@@ -737,7 +737,10 @@ def confluence_add_footer_comment(
             "success": True,
             "action": "confluence_add_footer_comment",
             "message": "✅ Comment added successfully to page 123456789",
-            "url": "https://your-site.atlassian.net/wiki/pages/123456789?focusedCommentId=987654"
+            "data": {
+                "url": "https://your-site.atlassian.net/wiki/pages/123456789?focusedCommentId=987654",
+                "comment_id":"987654"
+                }
         }
 
     Notes:
@@ -777,16 +780,14 @@ def confluence_add_footer_comment(
     if resp.status_code in (200, 201):
         result = resp.json()
         comment_id = result.get("id")
-        page_url = (
-            f"https://{base_url}/wiki/pages/{page_id}?focusedCommentId={comment_id}"
-            if comment_id
-            else f"https://{base_url}/wiki/pages/{page_id}"
-        )
+        webui = result.get("_links", {}).get("webui")
+        comment_url = f"{base_url}/wiki{webui}" if webui else None
+
         return make_response(
             success=True,
             action=action,
             message=f"✅ Comment added successfully to page {page_id}",
-            data={"url": page_url},
+            data={"url": comment_url, "comment_id": comment_id},
         )
     else:
         return make_response(
@@ -902,12 +903,11 @@ def confluence_get_footer_comments(
     data_json = resp.json()
     results = []
     for c in data_json.get("results", []):
+        if str(c.get("pageId")) != str(page_id):
+            continue
         comment_id = c.get("id")
-        comment_url = (
-            f"https://{base_url}/wiki/pages/{page_id}?focusedCommentId={comment_id}"
-            if comment_id
-            else None
-        )
+        webui = c.get("_links", {}).get("webui")
+        comment_url = f"{base_url}/wiki{webui}" if webui else None
         results.append(
             {
                 "id": comment_id,
@@ -1027,12 +1027,8 @@ def confluence_get_footer_comment_by_id(
         )
 
     c = resp.json()
-    page_id = c.get("pageId")  # required to construct comment URL
-    comment_url = (
-        f"https://{base_url}/wiki/pages/{page_id}?focusedCommentId={comment_id}"
-        if page_id
-        else None
-    )
+    webui = c.get("_links", {}).get("webui")
+    comment_url = f"{base_url}/wiki{webui}" if webui else None
 
     data = {
         "id": c.get("id"),
@@ -1234,8 +1230,9 @@ def confluence_update_page(
             message=f"❌ Failed to update page: {update_resp.status_code} - {update_resp.text}",
         )
 
-    page_url = f"https://{base_url}/wiki/pages/{page_id}"
-
+    data = update_resp.json()
+    webui = data.get("_links", {}).get("webui", "")
+    page_url = f"{base_url}/wiki{webui}" if webui else None
     return make_response(
         success=True,
         action=action,
@@ -1426,6 +1423,8 @@ def get_page_attachments(metadata: Dict, page_id: str):
     attachments = []
     for item in items:
         download_link = item.get("_links", {}).get("download")
+        webui = download_link.get("webui", "")
+        page_url = f"{base_url}/wiki{webui}" if webui else None
         attachments.append(
             {
                 "id": item.get("id"),
@@ -1434,7 +1433,7 @@ def get_page_attachments(metadata: Dict, page_id: str):
                 "download_url": (
                     f"{base_url}/wiki{download_link}" if download_link else None
                 ),
-                "page_url": f"{base_url}/wiki/pages/{page_id}",
+                "page_url": page_url,
             }
         )
 
