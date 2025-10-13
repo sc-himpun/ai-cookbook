@@ -166,10 +166,10 @@ def search_pages(metadata: Dict, query: str, limit: int = 5) -> dict:
     ---
     ### Args:
     - **metadata** (`Dict`): Dictionary containing user credentials and instance info.
-        - `access_token` (`str`): OAuth access token for Confluence Cloud.
         - `cloud_id` (`str`): Cloud ID of the Confluence site (from Atlassian API).
         - `base_url` (`str`): Base URL of the Confluence instance (e.g. "https://your-domain.atlassian.net").
     - **query** (`str`): The keyword or phrase to search within Confluence page titles and content.
+    - **limit** (`int`): Number of pages to return in results (Default - 5)
 
     ---
     ### Returns:
@@ -325,7 +325,6 @@ def get_space(
     ### Args:
     - **metadata** (`Dict`):
         Dictionary containing Confluence credentials:
-        - `access_token` (`str`): OAuth access token for the Confluence Cloud API.
         - `cloud_id` (`str`): Cloud ID of the Confluence site (from Atlassian API).
         - `base_url` (`str`): Base URL of the Confluence instance (e.g. "https://your-domain.atlassian.net").
 
@@ -1321,10 +1320,16 @@ def list_pages_in_space(metadata: Dict, space_id: str, limit: int = 10):
             data=[],
         )
 
-    page_list = [
-        {"id": p["id"], "title": p["title"], "url": f"{base_url}/wiki/pages/{p['id']}"}
-        for p in pages
-    ]
+    page_list = []
+    for p in pages:
+        webui = p.get("_links", {}).get("webui", "")
+        page_list.append(
+            {
+                "id": p.get("id"),
+                "title": p.get("title"),
+                "url": f"{base_url}/wiki{webui}" if webui else "",
+            }
+        )
 
     return make_response(
         success=True,

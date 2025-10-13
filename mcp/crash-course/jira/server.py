@@ -242,8 +242,10 @@ def resolve_jira_site_url(metadata: Dict) -> Optional[str]:
                     )
                 if resource and resource.get("url"):
                     return resource["url"].rstrip("/")
-        except Exception:
-            pass
+        except Exception as e:
+            print(
+                f"Error: Failed to fetch accessible Jira resources. Details: {e}"
+            )
 
     # No valid site resolved
     return None
@@ -434,6 +436,53 @@ def adf_to_plain_text(blocks: list) -> str:
     lines = []
 
     def parse_node(node):
+        """
+        Each ADF node in Jira/Confluence has a `"type"` and optional `"content"`.
+        This function inspects the type and handles known node structures:
+
+        Node types and their meaning:
+        - **paragraph**: A block of regular text (e.g., a comment or description line).
+          Content contains `"text"` nodes.
+          Example:
+            {"type": "paragraph", "content": [{"type": "text", "text": "Hello"}]}
+
+        - **heading**: A section title (level indicated by `"attrs": {"level": n}`).
+          Example:
+            {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Title"}]}
+
+        - **blockquote**: Quoted text, often used in replies or references.
+
+        - **text**: Leaf node containing actual text characters. May also include
+          `"marks"` (e.g., bold, italic, link) which are ignored here for simplicity.
+
+        - **codeBlock**: A fenced code snippet.
+          Example:
+            {
+              "type": "codeBlock",
+              "attrs": {"language": "python"},
+              "content": [{"type": "text", "text": "print('hi')"}]
+            }
+
+        - **bulletList**: An unordered list.
+          Contains one or more `"listItem"` nodes with textual `"content"` blocks.
+          Example:
+            {
+              "type": "bulletList",
+              "content": [
+                {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Item 1"}]}]}
+              ]
+            }
+
+        - **orderedList**: An ordered list (numbered).
+          Similar to `bulletList`, but rendered with numerical prefixes.
+
+        - **listItem**: A single item in a list; contains paragraph/text nodes.
+
+        - **unknown/custom nodes**: Nodes with unrecognized `"type"` are traversed
+          recursively by calling `parse_node` on their `"content"`.
+
+        The output accumulates into the outer `lines` list, one string per block.
+        """
         node_type = node.get("type")
         content = node.get("content", [])
 
