@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
-import io
-import json
-from typing import Dict, Tuple
+from mcp.server.fastmcp import FastMCP
+from dotenv import load_dotenv
 import os
 import boto3
+import json
+from typing import Dict, Tuple
 import docx
-import fitz  # PyMuPDF
 from docx import Document
-from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+import fitz  # PyMuPDF
+import io
+import json
 
 
 load_dotenv()
@@ -33,9 +34,8 @@ Metadata for MinIO -
 
 
 """
-LARGE_FILE_THRESHOLD = 1_000_000  # 1MB
-S3_MCP_PORT = int(os.getenv("S3_MCP_PORT", "8050"))
 
+LARGE_FILE_THRESHOLD = 1_000_000  # 1MB
 
 def get_s3_client_and_bucket(metadata: Dict) -> Tuple[boto3.client, str]:
     """
@@ -68,7 +68,7 @@ def get_s3_client_and_bucket(metadata: Dict) -> Tuple[boto3.client, str]:
     s3_params = {
         "aws_access_key_id": access_key,
         "aws_secret_access_key": secret_key,
-        "region_name": region,
+        "region_name": region
     }
 
     if endpoint_url:
@@ -79,12 +79,10 @@ def get_s3_client_and_bucket(metadata: Dict) -> Tuple[boto3.client, str]:
 
 
 # ─── MCP SETUP ─────────────────────────────────────────────────────────────
-mcp = FastMCP(name="S3Toolkit", host="0.0.0.0", port=S3_MCP_PORT)
+mcp = FastMCP(name="S3Toolkit", host="0.0.0.0", port=8050)
 
 
-def extract_text_from_file(
-    key: str, raw_bytes: bytes, stream: bool = False, max_chars: int = 0
-) -> str:  # noqa: C901
+def extract_text_from_file(key: str, raw_bytes: bytes, stream: bool = False, max_chars: int = 0) -> str:
     """
     Extracts text based on file type.
     - PDF: PyMuPDF (streams page-by-page if stream=True)
@@ -142,14 +140,70 @@ def extract_text_from_file(
     return "\n".join(extracted_text_parts).strip()
 
 
+
+# @mcp.tool(name="s3_search_file_content")
+# def search_file_content(metadata: dict, filename: str, keyword: str,
+#                         max_preview_chars: int = 5000) -> str:
+#     """
+#     Search within the content of a specific file in S3.
+#     - Streams PDFs page-by-page to reduce memory usage.
+#     - Supports text-based formats.
+#     - Returns matching chunk/page indexes for targeted retrieval.
+#     """
+#     s3, bucket = get_s3_client_and_bucket(metadata)
+#     results = []
+#     match_found = False
+#     matching_chunks = []
+#     total_chunks = 0
+
+#     # Ensure file exists
+#     try:
+#         s3.head_object(Bucket=bucket, Key=filename)
+#     except Exception:
+#         return json.dumps({"error": f"File '{filename}' not found in S3 bucket."})
+
+#     # Content search
+#     if filename.lower().endswith(".pdf"):
+#         raw_bytes = s3.get_object(Bucket=bucket, Key=filename)["Body"].read()
+#         pdf_document = fitz.open(stream=raw_bytes, filetype="pdf")
+#         total_chunks = pdf_document.page_count
+#         for idx in range(total_chunks):
+#             page_text = pdf_document[idx].get_text()
+#             if keyword.lower() in page_text.lower():
+#                 match_found = True
+#                 matching_chunks.append(idx)
+#         pdf_document.close()
+
+#     else:
+#         raw_bytes = s3.get_object(Bucket=bucket, Key=filename)["Body"].read()
+#         text = extract_text_from_file(filename, raw_bytes)
+
+#         if len(text) > max_preview_chars:
+#             chunks = chunk_text(text, max_chunk_size=max_preview_chars)
+#             total_chunks = len(chunks)
+#             for idx, chunk in enumerate(chunks):
+#                 if keyword.lower() in chunk.lower():
+#                     match_found = True
+#                     matching_chunks.append(idx)
+#         else:
+#             total_chunks = 1
+#             if keyword.lower() in text.lower():
+#                 match_found = True
+#                 matching_chunks.append(0)
+
+#     if match_found:
+#         results.append({
+#             "key": filename,
+#             "matches_in_chunks": matching_chunks,
+#             "total_chunks": total_chunks
+#         })
+
+#     return json.dumps(results)
+
 @mcp.tool(name="s3_search_file_content")
-def search_file_content(
-    metadata: dict,
-    filename: str,
-    keyword: str,
-    max_preview_chars: int = 5000,
-    large_file_threshold: int = LARGE_FILE_THRESHOLD,
-) -> str:
+def search_file_content(metadata: dict, filename: str, keyword: str,
+                        max_preview_chars: int = 5000,
+                        large_file_threshold: int = LARGE_FILE_THRESHOLD) -> str:
     """
     Search within the content of a specific file in S3.
     - For large files, delegate to vector_search.
@@ -173,13 +227,11 @@ def search_file_content(
 
     # 🚨 Delegate to vector_search if file is too large
     if file_size > large_file_threshold:
-        return json.dumps(
-            {
-                "delegate": "vector_ingest_s3",
-                "key": filename,
-                "reason": f"File size {file_size} exceeds threshold {large_file_threshold}. Use 'vector_ingest_s3' for ingesting the chunks as embeddings and searching.",
-            }
-        )
+        return json.dumps({
+                    "delegate": "vector_ingest_s3",
+                    "key": filename,
+                    "reason": f"File size {file_size} exceeds threshold {large_file_threshold}. Use 'vector_ingest_s3' for ingesting the chunks as embeddings and searching."
+                })
 
     # ✅ Normal content search for smaller files
     if filename.lower().endswith(".pdf"):
@@ -211,21 +263,17 @@ def search_file_content(
                 matching_chunks.append(0)
 
     if match_found:
-        results.append(
-            {
-                "key": filename,
-                "matches_in_chunks": matching_chunks,
-                "total_chunks": total_chunks,
-            }
-        )
+        results.append({
+            "key": filename,
+            "matches_in_chunks": matching_chunks,
+            "total_chunks": total_chunks
+        })
 
     return json.dumps(results)
 
 
 @mcp.tool(name="s3_list_files")
-def list_files_in_s3(
-    metadata: dict, prefix: str = "", max_keys: int = 100, search_substring: bool = True
-) -> str:
+def list_files_in_s3(metadata: dict, prefix: str = "", max_keys: int = 100, search_substring: bool = True) -> str:
     """
     List files in the configured S3 bucket.
     - Uses metadata for AWS/S3 configuration.
@@ -247,13 +295,11 @@ def list_files_in_s3(
                     if not key.startswith(prefix):
                         continue
 
-                results.append(
-                    {
-                        "key": key,
-                        "size_bytes": obj["Size"],
-                        "last_modified": obj["LastModified"].isoformat(),
-                    }
-                )
+                results.append({
+                    "key": key,
+                    "size_bytes": obj["Size"],
+                    "last_modified": obj["LastModified"].isoformat()
+                })
                 if len(results) >= max_keys:
                     break
             if len(results) >= max_keys:
@@ -264,13 +310,10 @@ def list_files_in_s3(
     return json.dumps(results)
 
 
+
 @mcp.tool(name="s3_search_files")
-def search_files(
-    metadata: dict,
-    keyword: str,
-    search_type: str = "both",
-    max_preview_chars: int = 8000,
-) -> str:
+def search_files(metadata: dict, keyword: str, search_type: str = "both",
+                 max_preview_chars: int = 8000) -> str:
     """
     Search filenames and/or file content in S3.
     - Streams large files and stops early when a match is found.
@@ -288,6 +331,7 @@ def search_files(
         for obj in page.get("Contents", []):
             all_objects.append(obj)
 
+    
     # Sort by size so smaller files are searched first
     all_objects.sort(key=lambda x: x["Size"])
     print(all_objects)
@@ -298,17 +342,15 @@ def search_files(
         match_found = False
         matching_chunks = []
         total_chunks = 0
-
+        
         if file_size > LARGE_FILE_THRESHOLD:
-            # Instead of brute-force scanning, tell LLM to use vector search
-            return json.dumps(
-                {
+                # Instead of brute-force scanning, tell LLM to use vector search
+                return json.dumps({
                     "delegate": "vector_ingest_s3",
                     "key": key,
-                    "reason": f"File size {file_size} exceeds threshold. Use 'vector_ingest_s3' for ingesting the chunks as embeddings and searching.",
-                }
-            )
-
+                    "reason": f"File size {file_size} exceeds threshold. Use 'vector_ingest_s3' for ingesting the chunks as embeddings and searching."
+                })
+        
         # Filename match
         if search_type in ["filename", "both"] and keyword.lower() in key.lower():
             match_found = True
@@ -372,14 +414,12 @@ def search_files(
                 #     match_found = True
 
         if match_found:
-            results.append(
-                {
-                    "key": key,
-                    "size": file_size,
-                    "matches_in_chunks": matching_chunks,
-                    "total_chunks": total_chunks,
-                }
-            )
+            results.append({
+                "key": key,
+                "size": file_size,
+                "matches_in_chunks": matching_chunks,
+                "total_chunks": total_chunks
+            })
 
     return json.dumps(results)
 
@@ -403,19 +443,22 @@ def chunk_text(text: str, max_chunk_size: int = 3000, overlap: int = 200) -> lis
     return chunks
 
 
+
 @mcp.tool(name="s3_fetch_file_chunked")
 def fetch_file_chunked(
     metadata: dict,
     key: str,
     chunk_index: int = 0,
     max_chunk_size: int = 3000,
-    overlap: int = 200,
+    overlap: int = 200
 ) -> dict:
     """
     Fetch a chunk of text from a file stored in S3 without loading the entire file into memory.
     For PDFs, extracts text page-by-page until chunk is filled.
     For other formats, falls back to full extraction (can optimize later).
     """
+    import fitz  # PyMuPDF
+    import io
 
     s3, bucket = get_s3_client_and_bucket(metadata)
     raw_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
@@ -447,7 +490,7 @@ def fetch_file_chunked(
                         return {
                             "chunk": current_text,
                             "chunk_index": chunk_index,
-                            "total_chunks": estimated_chunks,
+                            "total_chunks": estimated_chunks
                         }
                 char_count += 1
 
@@ -455,7 +498,7 @@ def fetch_file_chunked(
         return {
             "chunk": current_text,
             "chunk_index": chunk_index,
-            "total_chunks": estimated_chunks,
+            "total_chunks": estimated_chunks
         }
 
     elif key.lower().endswith(".txt"):
@@ -473,13 +516,17 @@ def fetch_file_chunked(
                         return {
                             "chunk": current_text,
                             "chunk_index": chunk_index,
-                            "total_chunks": None,  # unknown without scanning whole file
+                            "total_chunks": None  # unknown without scanning whole file
                         }
                 char_count += 1
 
-        return {"chunk": current_text, "chunk_index": chunk_index, "total_chunks": None}
-
-    # DOCX and others - still need full read
+        return {
+            "chunk": current_text,
+            "chunk_index": chunk_index,
+            "total_chunks": None
+        }
+    
+     # DOCX and others - still need full read
     else:
         raw_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
         text = extract_text_from_file(key, raw_bytes)
@@ -487,14 +534,13 @@ def fetch_file_chunked(
         return {
             "chunk": chunks[chunk_index] if chunk_index < len(chunks) else "",
             "chunk_index": chunk_index,
-            "total_chunks": len(chunks),
+            "total_chunks": len(chunks)
         }
 
 
+
 @mcp.tool(name="s3_fetch_file")
-def fetch_file(
-    metadata: dict, key: str, user_query: str = "", max_chars: int = 5000
-) -> dict:
+def fetch_file(metadata: dict, key: str, user_query: str = "", max_chars: int = 5000) -> dict:
     """
     Fetch file from S3; PDFs and DOCX are converted to text.
     If file is too large, automatically returns the first chunk using s3_fetch_file_chunked.
@@ -505,7 +551,11 @@ def fetch_file(
 
     if len(text) > max_chars:
         first_chunk_data = fetch_file_chunked(
-            metadata=metadata, key=key, chunk_index=0, max_chunk_size=3000, overlap=200
+            metadata=metadata,
+            key=key,
+            chunk_index=0,
+            max_chunk_size=3000,
+            overlap=200
         )
 
         note = (
@@ -518,10 +568,16 @@ def fetch_file(
             "chunk": first_chunk_data["chunk"],
             "chunk_index": first_chunk_data["chunk_index"],
             "total_chunks": first_chunk_data["total_chunks"],
-            "note": note,
+            "note": note
         }
 
-    return {"chunk": text, "chunk_index": 0, "total_chunks": 1}
+    return {
+        "chunk": text,
+        "chunk_index": 0,
+        "total_chunks": 1
+    }
+
+
 
 
 @mcp.tool(name="s3_get_file_schema")
@@ -531,10 +587,9 @@ def s3_get_file_schema(metadata: dict, key: str) -> str:
     JSON (via S3 Select sample), or Parquet (via S3 Select sample).
     """
     import csv
-
     s3, bucket = get_s3_client_and_bucket(metadata)
     if key.endswith(".csv"):
-        try:
+        try:            
             # Read only first 1KB to get the header line
             response = s3.get_object(Bucket=bucket, Key=key, Range="bytes=0-1024")
             content = response["Body"].read().decode("utf-8", errors="ignore")
@@ -549,7 +604,7 @@ def s3_get_file_schema(metadata: dict, key: str) -> str:
         try:
             input_serialization = {
                 "JSON": {"Type": "DOCUMENT"},
-                "CompressionType": "NONE",
+                "CompressionType": "NONE"
             }
             output_serialization = {"JSON": {}}
             response = s3.select_object_content(
@@ -565,16 +620,15 @@ def s3_get_file_schema(metadata: dict, key: str) -> str:
                 if "Records" in event:
                     raw += event["Records"]["Payload"].decode("utf-8", errors="ignore")
             record = json.loads(raw.strip().splitlines()[0])
-            return json.dumps(
-                [{"column": k, "type": type(v).__name__} for k, v in record.items()],
-                indent=2,
-            )
+            return json.dumps([{"column": k, "type": type(v).__name__} for k, v in record.items()], indent=2)
         except Exception as e:
             return f"JSON schema inference failed: {str(e)}"
 
     elif key.endswith(".parquet"):
         try:
-            input_serialization = {"Parquet": {}}
+            input_serialization = {
+                "Parquet": {}
+            }
             output_serialization = {"JSON": {}}
             response = s3.select_object_content(
                 Bucket=bucket,
@@ -589,10 +643,7 @@ def s3_get_file_schema(metadata: dict, key: str) -> str:
                 if "Records" in event:
                     raw += event["Records"]["Payload"].decode("utf-8", errors="ignore")
             record = json.loads(raw.strip().splitlines()[0])
-            return json.dumps(
-                [{"column": k, "type": type(v).__name__} for k, v in record.items()],
-                indent=2,
-            )
+            return json.dumps([{"column": k, "type": type(v).__name__} for k, v in record.items()], indent=2)
         except Exception as e:
             return f"Parquet schema inference failed: {str(e)}"
 
@@ -600,10 +651,9 @@ def s3_get_file_schema(metadata: dict, key: str) -> str:
         return f"Unsupported file format for key: {key}"
 
 
+
 @mcp.tool(name="s3_select_query")
-def s3_select_query(
-    metadata: dict, key: str, query: str = "SELECT * FROM S3Object LIMIT 5"
-) -> str:
+def s3_select_query(metadata: dict, key: str, query: str = "SELECT * FROM S3Object LIMIT 5") -> str:
     """
     Query CSV, JSON, or Parquet files on S3 using S3 Select.
     Only supports structured formats: .csv, .json, .parquet
@@ -613,14 +663,19 @@ def s3_select_query(
     if key.endswith(".csv"):
         input_serialization = {
             "CSV": {"FileHeaderInfo": "USE"},
-            "CompressionType": "NONE",
+            "CompressionType": "NONE"
         }
         output_serialization = {"CSV": {}}
     elif key.endswith(".json"):
-        input_serialization = {"JSON": {"Type": "DOCUMENT"}, "CompressionType": "NONE"}
+        input_serialization = {
+            "JSON": {"Type": "DOCUMENT"},
+            "CompressionType": "NONE"
+        }
         output_serialization = {"JSON": {}}
     elif key.endswith(".parquet"):
-        input_serialization = {"Parquet": {}}
+        input_serialization = {
+            "Parquet": {}
+        }
         output_serialization = {"JSON": {}}
     else:
         return f"Unsupported file format for key: {key}"
@@ -644,7 +699,6 @@ def s3_select_query(
 
     except Exception as e:
         return f"Query failed: {str(e)}"
-
 
 if __name__ == "__main__":
     mcp.run(transport="sse")
