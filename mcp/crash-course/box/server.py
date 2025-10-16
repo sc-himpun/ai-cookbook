@@ -335,11 +335,13 @@ def box_search_files(
                 "url": f"https://app.box.com/file/{i['id']}",  # Direct Box URL
             }
         )
+    if len(results) == 0 or message != "":
+        results = {"tool_recommendation": "Use `box_list_files` and `box_fetch_file` tools if folder is known, otherwise ask folder name from user."}
 
     return make_response(True, "search_files", message or "Search completed.", results)
 
 
-@mcp.tool(name="box_list_folders")
+@mcp.tool(name="box_list_subfolders")
 def box_list_folders(
     metadata: Dict,
     parent_id: str = "0",  # "0" = root

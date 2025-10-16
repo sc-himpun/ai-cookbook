@@ -43,7 +43,7 @@ class MCPOpenAIClient:
     async def connect_to_servers(self):
         servers = {
             # "s3": "http://localhost:8050/sse",
-            #"s3": "http://localhost:8059/sse",
+            # "s3": "http://localhost:8050/sse",
             # "vector": "http://localhost:8060/sse",
           
             # "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
@@ -51,13 +51,13 @@ class MCPOpenAIClient:
             # "jira": "http://localhost:8002/mcp-server/sse/",
             #"gitlab": "http://localhost:8017/mcp-server/sse/",
             #"github": "http://localhost:8010/mcp-server/sse/",
-            #"s3": "http://localhost:8050/sse/",
-            #"odata": "http://localhost:8016/mcp-server/sse/",
+            "s3": "http://localhost:8050/sse/",
+            # "odata": "http://localhost:8016/mcp-server/sse/",
             #"asana": "http://localhost:8011/mcp-server/sse/",
             #"asana": "https://mcp.asana.com/sse",
             # "youtrack": "http://localhost:8089/mcp-server/sse",
             #"salesforce": "http://localhost:8091/mcp-server/sse",
-            "confluence": "http://localhost:8071/mcp-server/sse",
+            # "confluence": "http://localhost:8071/mcp-server/sse",
             # "zoom": "http://localhost:8019/mcp-server/sse",
             # "box": "http://localhost:8029/mcp-server/sse",
             # "slack": "http://localhost:8003/mcp-server/sse"
@@ -522,6 +522,7 @@ async def main():
                 """
                 with open(metadata_path, "r") as f:
                     metadata = json.load(f)
+
                 response = await client.process_query(query, metadata=metadata)
 
                 print(f"\n📤 Response:\n{response}")
