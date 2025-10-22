@@ -555,26 +555,28 @@ def search_files(
     Search filenames and/or file content in an S3 or MinIO bucket.
 
     This tool scans objects in the configured bucket and identifies files whose
-    names or contents contain the specified keyword. It handles text, PDF, and DOCX files,
-    streaming large files efficiently and skipping over non-text/binary formats.
+    names or contents contain the specified keyword. It supports text, PDF, and DOCX
+    files, handles large-file thresholds, and streams content efficiently.
 
     Args:
-        metadata (dict): Contains configuration for the S3/MinIO connection.
+        metadata (dict): Connection configuration for S3/MinIO.
         keyword (str): Text to search for within filenames or file content.
-        search_type (str, optional): Search mode — one of {"filename", "content", "both"}. Defaults to "both".
-        max_preview_chars (int, optional): Number of characters per chunk to read from large text files. Defaults to 8000.
+        search_type (str, optional): One of {"filename", "content", "both"}. Defaults to "both".
+        max_preview_chars (int, optional): Number of characters per chunk when reading text. Defaults to 8000.
 
     Returns:
-        dict: Standardized MCP response containing:
-            - success (bool): True if search completed successfully.
+        dict: MCP-formatted response with:
+            - success (bool): Whether the search completed successfully.
             - action (str): The tool name ("s3_search_files").
-            - message (str): Status message.
-            - data (list[dict]): List of matching files, each with:
+            - message (str): Descriptive status message.
+            - data (list[dict]): Matching file entries, each with:
                 - key (str): Object key in the bucket.
                 - size (int): File size in bytes.
-                - matches_in_chunks (list[int]): Indices of chunks where matches were found.
-                - total_chunks (int): Total number of chunks read.
-                - url (str): Presigned URL for direct file access.
+                - matches_in_chunks (list[int]): Indices of chunks or pages with matches.
+                - total_chunks (int): Total chunks/pages scanned.
+                - url (str): Presigned URL for file access.
+                - delegate (str, optional): Processing suggestion for large files.
+                - reason (str, optional): Explanation for skipped large files.
 
     Example:
         >>> search_files(metadata, keyword="invoice", search_type="content")
@@ -596,104 +598,23 @@ def search_files(
     action = "s3_search_files"
     s3, bucket = get_s3_client_and_bucket(metadata)
     results = []
-    all_objects = []
 
     try:
-        # Fetch all objects in the bucket (paginated)
-        paginator = s3.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=bucket):
-            for obj in page.get("Contents", []):
-                all_objects.append(obj)
+        all_objects = list_all_objects(s3, bucket)
 
-        # Sort smaller files first for efficiency
-        all_objects.sort(key=lambda x: x["Size"])
-
-        for obj in all_objects:
+        for obj in sorted(all_objects, key=lambda x: x["Size"]):
             key = obj["Key"]
             file_size = obj["Size"]
-            match_found = False
-            matching_chunks = []
-            total_chunks = 0
 
-            # Large file → skip but log delegate info for vector ingestion
             if file_size > LARGE_FILE_THRESHOLD:
-                results.append(
-                    {
-                        "key": key,
-                        "size": file_size,
-                        "matches_in_chunks": [],
-                        "total_chunks": 0,
-                        "url": generate_presigned_url(s3, bucket, key),
-                        "delegate": "vector_ingest_s3",
-                        "reason": f"File size {file_size} exceeds threshold. Content not searched.",
-                    }
-                )
+                results.append(make_large_file_entry(s3, bucket, key, file_size))
                 continue
 
-            # 🔍 Filename match
-            if search_type in ["filename", "both"] and keyword.lower() in key.lower():
-                match_found = True
-
-            # 🔍 Content match
-            if not match_found and search_type in ["content", "both"]:
-                if key.lower().endswith(".pdf"):
-                    raw_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
-                    pdf_doc = fitz.open(stream=raw_bytes, filetype="pdf")
-                    total_chunks = pdf_doc.page_count
-                    for idx in range(total_chunks):
-                        if keyword.lower() in pdf_doc[idx].get_text().lower():
-                            match_found = True
-                            matching_chunks.append(idx)
-                            break
-                    pdf_doc.close()
-
-                elif key.lower().endswith(".docx"):
-                    raw_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
-                    doc = docx.Document(io.BytesIO(raw_bytes))
-                    total_chunks = len(doc.paragraphs)
-                    for idx, para in enumerate(doc.paragraphs):
-                        if keyword.lower() in para.text.lower():
-                            match_found = True
-                            matching_chunks.append(idx)
-                            break
-
-                else:
-                    # Stream and chunk-read text files
-                    obj_stream = s3.get_object(Bucket=bucket, Key=key)["Body"]
-                    buffer = ""
-                    chunk_index = 0
-
-                    for raw_line in obj_stream.iter_lines():
-                        try:
-                            line = raw_line.decode("utf-8", errors="ignore")
-                        except Exception:
-                            line = ""
-                        buffer += line + "\n"
-
-                        if len(buffer) >= max_preview_chars:
-                            if keyword.lower() in buffer.lower():
-                                match_found = True
-                                matching_chunks.append(chunk_index)
-                                break
-                            buffer = ""
-                            chunk_index += 1
-
-                    if not match_found and buffer and keyword.lower() in buffer.lower():
-                        match_found = True
-                        matching_chunks.append(chunk_index)
-
-                    total_chunks = chunk_index + (1 if buffer else 0)
-
-            if match_found:
-                results.append(
-                    {
-                        "key": key,
-                        "size": file_size,
-                        "matches_in_chunks": matching_chunks,
-                        "total_chunks": total_chunks,
-                        "url": generate_presigned_url(s3, bucket, key),
-                    }
-                )
+            match_info = search_object_for_keyword(
+                s3, bucket, key, keyword, search_type, max_preview_chars
+            )
+            if match_info:
+                results.append(match_info)
 
         return make_response(
             success=True,
@@ -709,6 +630,215 @@ def search_files(
             message=f"Error searching files in bucket '{bucket}': {str(e)}",
             data=[],
         )
+
+
+def list_all_objects(s3, bucket: str) -> list:
+    """
+    Retrieve all objects from a specified S3 or MinIO bucket using pagination.
+
+    This helper paginates through `list_objects_v2` results to ensure all
+    objects are returned even for large buckets.
+
+    Args:
+        s3: Boto3 S3 client instance.
+        bucket (str): Name of the bucket to scan.
+
+    Returns:
+        list[dict]: List of object metadata dictionaries containing at least
+        'Key' and 'Size' fields.
+    """
+    objects = []
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket):
+        objects.extend(page.get("Contents", []))
+    return objects
+
+
+def make_large_file_entry(s3, bucket: str, key: str, size: int) -> dict:
+    """
+    Create a standardized entry for large files that exceed the search threshold.
+
+    Used to mark files that are too large for inline content scanning, but still
+    provide a presigned URL for external processing.
+
+    Args:
+        s3: Boto3 S3 client.
+        bucket (str): Bucket name.
+        key (str): Object key.
+        size (int): File size in bytes.
+
+    Returns:
+        dict: Entry describing a large file and the reason it was skipped.
+    """
+    return {
+        "key": key,
+        "size": size,
+        "matches_in_chunks": [],
+        "total_chunks": 0,
+        "url": generate_presigned_url(s3, bucket, key),
+        "delegate": "vector_ingest_s3",
+        "reason": f"File size {size} exceeds threshold. Possible candidate for search but content not yet searched. Use tool `vector_ingest_s3` if needed to be searched.",
+    }
+
+
+def search_object_for_keyword(
+    s3, bucket: str, key: str, keyword: str, search_type: str, max_preview_chars: int
+) -> dict | None:
+    """
+    Search a single object for the presence of a keyword in its filename or content.
+
+    Depending on file extension, delegates to `search_pdf`, `search_docx`,
+    or `search_text`. Returns a match record only if the keyword is found.
+
+    Args:
+        s3: Boto3 S3 client.
+        bucket (str): Bucket name.
+        key (str): Object key.
+        keyword (str): Text to search for.
+        search_type (str): One of {"filename", "content", "both"}.
+        max_preview_chars (int): Number of characters per chunk for text scanning.
+
+    Returns:
+        dict | None: Matching result entry if found, otherwise None.
+    """
+    filename_match = False
+    match_found = False
+    matching_chunks = []
+    total_chunks = 0
+
+    # Filename match
+    if search_type in ["filename", "both"] and keyword.lower() in key.lower():
+        match_found = True
+        filename_match = True
+
+    # Content match
+    if not match_found and search_type in ["content", "both"]:
+        ext = key.lower().split(".")[-1]
+        if ext == "pdf":
+            match_found, matching_chunks, total_chunks = search_pdf(
+                s3, bucket, key, keyword
+            )
+        elif ext == "docx":
+            match_found, matching_chunks, total_chunks = search_docx(
+                s3, bucket, key, keyword
+            )
+        else:
+            match_found, matching_chunks, total_chunks = search_text(
+                s3, bucket, key, keyword, max_preview_chars
+            )
+
+    if match_found:
+        return {
+            "key": key,
+            "size": s3.head_object(Bucket=bucket, Key=key)["ContentLength"],
+            "matches_in_chunks": matching_chunks,
+            "total_chunks": total_chunks,
+            "url": generate_presigned_url(s3, bucket, key),
+            "message": "Found in filename" if filename_match else "Found in content"
+        }
+    return None
+
+
+def search_pdf(s3, bucket: str, key: str, keyword: str):
+    """
+    Search for a keyword within the text content of a PDF file stored in S3.
+
+    Each page is treated as a "chunk". The search stops once a match is found
+    or all pages are scanned.
+
+    Args:
+        s3: Boto3 S3 client.
+        bucket (str): Bucket name.
+        key (str): PDF object key.
+        keyword (str): Text to search for (case-insensitive).
+
+    Returns:
+        tuple[bool, list[int], int]: A tuple of:
+            - match_found (bool)
+            - matching_chunks (list[int]): Page indices containing matches
+            - total_chunks (int): Total pages scanned
+    """
+    raw_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+    pdf_doc = fitz.open(stream=raw_bytes, filetype="pdf")
+    total_chunks = pdf_doc.page_count
+    matches = [
+        idx
+        for idx in range(total_chunks)
+        if keyword.lower() in pdf_doc[idx].get_text().lower()
+    ]
+    pdf_doc.close()
+    return (bool(matches), matches, total_chunks)
+
+
+def search_docx(s3, bucket: str, key: str, keyword: str):
+    """
+    Search for a keyword within the paragraphs of a DOCX file.
+
+    Each paragraph is treated as a "chunk". The search stops once the keyword
+    is found or all paragraphs are scanned.
+
+    Args:
+        s3: Boto3 S3 client.
+        bucket (str): Bucket name.
+        key (str): DOCX object key.
+        keyword (str): Text to search for (case-insensitive).
+
+    Returns:
+        tuple[bool, list[int], int]: A tuple of:
+            - match_found (bool)
+            - matching_chunks (list[int]): Paragraph indices containing matches
+            - total_chunks (int): Total paragraphs scanned
+    """
+    raw_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+    doc = docx.Document(io.BytesIO(raw_bytes))
+    total_chunks = len(doc.paragraphs)
+    matches = [
+        idx
+        for idx, para in enumerate(doc.paragraphs)
+        if keyword.lower() in para.text.lower()
+    ]
+    return (bool(matches), matches, total_chunks)
+
+
+def search_text(s3, bucket: str, key: str, keyword: str, max_preview_chars: int):
+    """
+    Search for a keyword within text-based files using streaming chunk reads.
+
+    The file is read line-by-line, accumulating text into chunks of
+    `max_preview_chars`. Each chunk is searched for the keyword, allowing
+    efficient handling of large text files.
+
+    Args:
+        s3: Boto3 S3 client.
+        bucket (str): Bucket name.
+        key (str): Text file object key.
+        keyword (str): Text to search for (case-insensitive).
+        max_preview_chars (int): Number of characters per chunk before flushing buffer.
+
+    Returns:
+        tuple[bool, list[int], int]: A tuple of:
+            - match_found (bool)
+            - matching_chunks (list[int]): Chunk indices containing matches
+            - total_chunks (int): Total chunks scanned
+    """
+    obj_stream = s3.get_object(Bucket=bucket, Key=key)["Body"]
+    buffer = ""
+    matches, chunk_index = [], 0
+    for raw_line in obj_stream.iter_lines():
+        try:
+            line = raw_line.decode("utf-8", errors="ignore")
+        except Exception:
+            line = ""
+        buffer += line + "\n"
+        if len(buffer) >= max_preview_chars:
+            if keyword.lower() in buffer.lower():
+                matches.append(chunk_index)
+            buffer = ""
+            chunk_index += 1
+    if buffer and keyword.lower() in buffer.lower():
+        matches.append(chunk_index)
+    total_chunks = chunk_index + (1 if buffer else 0)
+    return (bool(matches), matches, total_chunks)
 
 
 def chunk_text(text: str, max_chunk_size: int = 3000, overlap: int = 200) -> list:
