@@ -499,7 +499,7 @@ def vector_ingest_s3(
     max_chunk_size: int = 1200,
     overlap: int = 200,
     embed_batch: int = 32,
-) -> dict:  # no qa 
+) -> dict:
     """
     Ingest a single S3 object into FAISS using disk-backed streaming and
     incremental chunk → embed → insert (no full file buffers).
