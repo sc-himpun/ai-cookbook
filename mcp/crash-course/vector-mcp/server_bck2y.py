@@ -30,9 +30,7 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from dotenv import load_dotenv
 from huggingface_hub import login
-
 from mcp.server.fastmcp import Context
-import traceback
 
 load_dotenv()
 GDRIVE_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
@@ -495,146 +493,6 @@ def vector_status() -> dict:
 # S3 ingest (streaming, low-memory, incremental embedding)
 
 
-# @mcp.tool(name="vector_ingest_s3")
-# def vector_ingest_s3(  # noqa: C901
-#     metadata: dict,
-#     key: str,
-#     max_chunk_size: int = 1200,
-#     overlap: int = 200,
-#     embed_batch: int = 32,
-# ) -> dict:
-#     """
-#     Ingest a single S3 object into FAISS using disk-backed streaming and
-#     incremental chunk → embed → insert (no full file buffers).
-#     Handles empty/invalid files gracefully without crashing.
-#     Use this tool for queries on larger s3 files
-#     """
-#     # Cast arguments (tooling may send strings)
-#     max_chunk_size = int(max_chunk_size)
-#     overlap = int(overlap)
-#     embed_batch = int(embed_batch)
-#     if overlap >= max_chunk_size:
-#         return {
-#             "status": "error",
-#             "message": f"overlap ({overlap}) must be < max_chunk_size ({max_chunk_size})",
-#         }
-
-#     try:
-#         s3, bucket = get_s3_client_and_bucket(metadata)
-#         obj = s3.get_object(Bucket=bucket, Key=key)
-#         body: StreamingBody = obj["Body"]
-
-#         # Write to temp file (PDF/DOCX random access support)
-#         tmp_path = stream_s3_to_tempfile(body)
-
-#         # Compute MD5 for de-duplication
-#         with open(tmp_path, "rb") as f:
-#             file_hash = md5_stream(f)
-
-#         if file_hash in embedded_hashes:
-#             try:
-#                 os.unlink(tmp_path)
-#             except Exception:
-#                 pass
-#             return {"status": "already_ingested", "file_hash": file_hash}
-
-#         mime = guess_mime_from_key(key)
-#         metabase = {
-#             "source": key,
-#             "bucket": bucket,
-#             "provider": "s3",
-#             "file_hash": file_hash,
-#         }
-
-#         # Small rolling batch to control embedding memory
-#         batch_texts: List[str] = []
-#         batch_metas: List[dict] = []
-#         total_chunks = 0
-
-#         def flush_batch():
-#             nonlocal batch_texts, batch_metas, total_chunks
-#             if not batch_texts:
-#                 return
-#             filtered = [(t, m) for t, m in zip(batch_texts, batch_metas) if t.strip()]
-#             if filtered:
-#                 texts, metas = zip(*filtered)
-#                 add_texts_batch(list(texts), list(metas))
-#                 total_chunks += len(texts)
-#             # always clear
-#             batch_texts, batch_metas = [], []
-
-#         # PDF
-#         if mime == "application/pdf":
-#             chunk_idx = 0
-#             for chunk in stream_pdf_chunks_from_path(tmp_path, max_chunk_size, overlap):
-#                 if not chunk.strip():
-#                     continue
-#                 print(f"PDF chunk len={len(chunk)}")
-#                 batch_texts.append(chunk)
-#                 batch_metas.append({**metabase, "chunk_index": chunk_idx})
-#                 chunk_idx += 1
-#                 if len(batch_texts) >= embed_batch:
-#                     flush_batch()
-#             flush_batch()
-
-#         # DOCX
-#         elif (
-#             mime
-#             == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-#         ):
-#             chunk_idx = 0
-#             for chunk in stream_docx_chunks_from_path(
-#                 tmp_path, max_chunk_size, overlap
-#             ):
-#                 if not chunk.strip():
-#                     continue
-#                 batch_texts.append(chunk)
-#                 batch_metas.append({**metabase, "chunk_index": chunk_idx})
-#                 chunk_idx += 1
-#                 if len(batch_texts) >= embed_batch:
-#                     flush_batch()
-#             flush_batch()
-
-#         # TEXT and others
-#         else:
-#             obj2 = s3.get_object(Bucket=bucket, Key=key)
-#             body2: StreamingBody = obj2["Body"]
-#             chunk_idx = 0
-#             for chunk in stream_text_chunks_iter_lines(
-#                 body2, max_chunk_size, overlap, encoding="utf-8"
-#             ):
-#                 if not chunk.strip():
-#                     continue
-#                 batch_texts.append(chunk)
-#                 batch_metas.append({**metabase, "chunk_index": chunk_idx})
-#                 chunk_idx += 1
-#                 if len(batch_texts) >= embed_batch:
-#                     flush_batch()
-#             flush_batch()
-
-#         # Cleanup
-#         embedded_hashes.add(file_hash)
-#         file_hash_to_docids[file_hash] = [
-#             f"{file_hash}:{i}" for i in range(total_chunks)
-#         ]
-
-#         try:
-#             os.unlink(tmp_path)
-#         except Exception:
-#             pass
-
-#         if total_chunks == 0:
-#             return {"status": "empty", "file_hash": file_hash}
-
-#         return {"status": "ingested", "file_hash": file_hash, "chunks": total_chunks}
-
-#     except Exception as e:
-#         import traceback
-
-#         traceback.print_exc()
-#         return {"status": "error", "message": str(e)}
-
-
 @mcp.tool(name="vector_ingest_s3")
 def vector_ingest_s3(  # noqa: C901
     metadata: dict,
@@ -646,47 +504,49 @@ def vector_ingest_s3(  # noqa: C901
     """
     Ingest a single S3 object into FAISS using disk-backed streaming and
     incremental chunk → embed → insert (no full file buffers).
-    Prints progress to stdout periodically to prevent timeout.
+    Handles empty/invalid files gracefully without crashing.
+    Use this tool for queries on larger s3 files
     """
-    import sys
-    from botocore.response import StreamingBody
-
-    def log_progress(msg: str):
-        print(f"[progress] {msg}")
-        sys.stdout.flush()
+    # Cast arguments (tooling may send strings)
+    max_chunk_size = int(max_chunk_size)
+    overlap = int(overlap)
+    embed_batch = int(embed_batch)
+    if overlap >= max_chunk_size:
+        return {
+            "status": "error",
+            "message": f"overlap ({overlap}) must be < max_chunk_size ({max_chunk_size})",
+        }
 
     try:
-        # Argument conversions
-        max_chunk_size = int(max_chunk_size)
-        overlap = int(overlap)
-        embed_batch = int(embed_batch)
-        if overlap >= max_chunk_size:
-            return {
-                "status": "error",
-                "message": f"overlap ({overlap}) must be < max_chunk_size ({max_chunk_size})",
-            }
-
         s3, bucket = get_s3_client_and_bucket(metadata)
-        log_progress(f"📦 Fetching {key} from bucket {bucket} ...")
         obj = s3.get_object(Bucket=bucket, Key=key)
         body: StreamingBody = obj["Body"]
 
+        # Write to temp file (PDF/DOCX random access support)
         tmp_path = stream_s3_to_tempfile(body)
-        log_progress("✅ Download complete, computing hash...")
 
+        # Compute MD5 for de-duplication
         with open(tmp_path, "rb") as f:
             file_hash = md5_stream(f)
 
         if file_hash in embedded_hashes:
-            os.unlink(tmp_path)
-            log_progress("⚡ Already ingested earlier.")
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
             return {"status": "already_ingested", "file_hash": file_hash}
 
         mime = guess_mime_from_key(key)
-        log_progress(f"📄 Processing as {mime} ...")
+        metabase = {
+            "source": key,
+            "bucket": bucket,
+            "provider": "s3",
+            "file_hash": file_hash,
+        }
 
-        metabase = {"source": key, "bucket": bucket, "provider": "s3", "file_hash": file_hash}
-        batch_texts, batch_metas = [], []
+        # Small rolling batch to control embedding memory
+        batch_texts: List[str] = []
+        batch_metas: List[dict] = []
         total_chunks = 0
 
         def flush_batch():
@@ -698,44 +558,80 @@ def vector_ingest_s3(  # noqa: C901
                 texts, metas = zip(*filtered)
                 add_texts_batch(list(texts), list(metas))
                 total_chunks += len(texts)
+            # always clear
             batch_texts, batch_metas = [], []
 
-        chunk_idx = 0
-
+        # PDF
         if mime == "application/pdf":
-            iterator = stream_pdf_chunks_from_path(tmp_path, max_chunk_size, overlap)
-        elif mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            iterator = stream_docx_chunks_from_path(tmp_path, max_chunk_size, overlap)
+            chunk_idx = 0
+            for chunk in stream_pdf_chunks_from_path(tmp_path, max_chunk_size, overlap):
+                if not chunk.strip():
+                    continue
+                print(f"PDF chunk len={len(chunk)}")
+                batch_texts.append(chunk)
+                batch_metas.append({**metabase, "chunk_index": chunk_idx})
+                chunk_idx += 1
+                if len(batch_texts) >= embed_batch:
+                    flush_batch()
+            flush_batch()
+
+        # DOCX
+        elif (
+            mime
+            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ):
+            chunk_idx = 0
+            for chunk in stream_docx_chunks_from_path(
+                tmp_path, max_chunk_size, overlap
+            ):
+                if not chunk.strip():
+                    continue
+                batch_texts.append(chunk)
+                batch_metas.append({**metabase, "chunk_index": chunk_idx})
+                chunk_idx += 1
+                if len(batch_texts) >= embed_batch:
+                    flush_batch()
+            flush_batch()
+
+        # TEXT and others
         else:
             obj2 = s3.get_object(Bucket=bucket, Key=key)
             body2: StreamingBody = obj2["Body"]
-            iterator = stream_text_chunks_iter_lines(body2, max_chunk_size, overlap, encoding="utf-8")
+            chunk_idx = 0
+            for chunk in stream_text_chunks_iter_lines(
+                body2, max_chunk_size, overlap, encoding="utf-8"
+            ):
+                if not chunk.strip():
+                    continue
+                batch_texts.append(chunk)
+                batch_metas.append({**metabase, "chunk_index": chunk_idx})
+                chunk_idx += 1
+                if len(batch_texts) >= embed_batch:
+                    flush_batch()
+            flush_batch()
 
-        for chunk in iterator:
-            if not chunk.strip():
-                continue
-            batch_texts.append(chunk)
-            batch_metas.append({**metabase, "chunk_index": chunk_idx})
-            chunk_idx += 1
-            if len(batch_texts) >= embed_batch:
-                flush_batch()
-                log_progress(f"🧩 Embedded {chunk_idx} chunks so far...")
-
-        flush_batch()
-
+        # Cleanup
         embedded_hashes.add(file_hash)
-        file_hash_to_docids[file_hash] = [f"{file_hash}:{i}" for i in range(total_chunks)]
-        os.unlink(tmp_path)
+        file_hash_to_docids[file_hash] = [
+            f"{file_hash}:{i}" for i in range(total_chunks)
+        ]
 
-        log_progress(f"✅ Finished ingest — {total_chunks} chunks embedded.")
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
         if total_chunks == 0:
             return {"status": "empty", "file_hash": file_hash}
+
         return {"status": "ingested", "file_hash": file_hash, "chunks": total_chunks}
 
     except Exception as e:
+        import traceback
+
         traceback.print_exc()
-        log_progress(f"❌ Error: {str(e)}")
         return {"status": "error", "message": str(e)}
+
 
 # ────────────────────────────────────────────────────────────────────────────
 # Google Drive ingest
@@ -994,9 +890,10 @@ def vector_ingest_text(
 
 
 @mcp.tool(name="vector_ingest_box")
-def vector_ingest_box(  # noqa: C901
+async def vector_ingest_box(
     metadata: dict,
     file_id: str,
+    ctx: Context,  # <-- Context object for progress/log streaming
     max_chunk_size: int = 1200,
     overlap: int = 200,
     embed_batch: int = 32,
@@ -1004,40 +901,33 @@ def vector_ingest_box(  # noqa: C901
 ) -> dict:
     """
     Ingest a single Box file into FAISS using streaming split/insert.
+    Reports progress to MCP client using ctx.report_progress().
     Requires metadata = {"box": {"access_token": "..."}}
-
-    Args:
-        metadata (dict): Metadata with Box access token.
-        file_id (str): Box file ID.
-        max_chunk_size (int): Max characters per chunk (default: 1200).
-        overlap (int): Overlap between chunks (default: 200).
-        embed_batch (int): Batch size for embedding (default: 32).
-        url (Optional[str]): Optional file URL.
-
-    Returns:
-        dict: Status and chunk info.
-
-    Example:
-        vector_ingest_box(metadata, file_id)
     """
-    max_chunk_size = int(max_chunk_size)
-    overlap = int(overlap)
-    embed_batch = int(embed_batch)
-    if overlap >= max_chunk_size:
-        return {
-            "status": "error",
-            "message": f"overlap ({overlap}) must be < max_chunk_size ({max_chunk_size})",
-        }
-
     try:
+        max_chunk_size = int(max_chunk_size)
+        overlap = int(overlap)
+        embed_batch = int(embed_batch)
+
+        if overlap >= max_chunk_size:
+            return {
+                "status": "error",
+                "message": f"overlap ({overlap}) must be < max_chunk_size ({max_chunk_size})",
+            }
+
+        await ctx.info(f"📦 Starting ingestion for Box file: {file_id}")
+
+        # --- Step 1: Download file ---
         tmp_path, meta = get_box_file_to_tempfile(metadata, file_id)
         file_name = meta["file_name"]
+        await ctx.info(f"✅ Downloaded file: {file_name}")
 
-        # Hash
+        # --- Step 2: Check if already ingested ---
         with open(tmp_path, "rb") as f:
             file_hash = md5_stream(f)
         if file_hash in embedded_hashes:
             os.unlink(tmp_path)
+            await ctx.info("⚠️ File already ingested, skipping.")
             return {"status": "already_ingested", "file_hash": file_hash}
 
         mime = guess_mime_from_key(file_name)
@@ -1052,7 +942,9 @@ def vector_ingest_box(  # noqa: C901
         batch_texts: List[str] = []
         batch_metas: List[dict] = []
         total_chunks = 0
+        chunk_idx = 0
 
+        # --- Helper: Flush batch to FAISS ---
         def flush_batch():
             nonlocal batch_texts, batch_metas, total_chunks
             if not batch_texts:
@@ -1061,59 +953,50 @@ def vector_ingest_box(  # noqa: C901
             total_chunks += len(batch_texts)
             batch_texts, batch_metas = [], []
 
-        # PDF
+        # --- Step 3: Chunk and embed ---
+        await ctx.info(f"🧩 Splitting & embedding content ({mime})...")
+
         if mime == "application/pdf":
-            chunk_idx = 0
             for chunk in stream_pdf_chunks_from_path(tmp_path, max_chunk_size, overlap):
                 batch_texts.append(chunk)
                 batch_metas.append({**metabase, "chunk_index": chunk_idx})
                 chunk_idx += 1
                 if len(batch_texts) >= embed_batch:
                     flush_batch()
+                    await ctx.report_progress(progress=total_chunks, total=None)
             flush_batch()
 
-        # DOCX
-        elif (
-            mime
-            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        ):
-            chunk_idx = 0
-            for chunk in stream_docx_chunks_from_path(
-                tmp_path, max_chunk_size, overlap
-            ):
+        elif mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            for chunk in stream_docx_chunks_from_path(tmp_path, max_chunk_size, overlap):
                 batch_texts.append(chunk)
                 batch_metas.append({**metabase, "chunk_index": chunk_idx})
                 chunk_idx += 1
                 if len(batch_texts) >= embed_batch:
                     flush_batch()
+                    await ctx.report_progress(progress=total_chunks, total=None)
             flush_batch()
 
-        # TEXT
         else:
+            # Treat as plain text
             splitter = RecursiveCharacterTextSplitter(
                 chunk_size=max_chunk_size,
                 chunk_overlap=overlap,
                 separators=["\n\n", "\n", " ", ""],
             )
             buffer = ""
-            chunk_idx = 0
             with open(tmp_path, "rb") as f:
                 for raw_line in f:
-                    try:
-                        line = raw_line.decode("utf-8", errors="ignore")
-                    except Exception:
-                        line = ""
+                    line = raw_line.decode("utf-8", errors="ignore")
                     buffer += line
                     if len(buffer) >= max_chunk_size * 2:
                         for c in splitter.split_text(buffer):
                             if c.strip():
                                 batch_texts.append(c)
-                                batch_metas.append(
-                                    {**metabase, "chunk_index": chunk_idx}
-                                )
+                                batch_metas.append({**metabase, "chunk_index": chunk_idx})
                                 chunk_idx += 1
                                 if len(batch_texts) >= embed_batch:
                                     flush_batch()
+                                    await ctx.report_progress(progress=total_chunks, total=None)
                         buffer = ""
             if buffer:
                 for c in splitter.split_text(buffer):
@@ -1123,19 +1006,24 @@ def vector_ingest_box(  # noqa: C901
                         chunk_idx += 1
                         if len(batch_texts) >= embed_batch:
                             flush_batch()
+                            await ctx.report_progress(progress=total_chunks, total=None)
             flush_batch()
 
+        # --- Step 4: Finalize ---
         embedded_hashes.add(file_hash)
-        file_hash_to_docids[file_hash] = [
-            f"{file_hash}:{i}" for i in range(total_chunks)
-        ]
+        file_hash_to_docids[file_hash] = [f"{file_hash}:{i}" for i in range(total_chunks)]
         os.unlink(tmp_path)
 
         if total_chunks == 0:
+            await ctx.info("⚠️ File contained no readable content.")
             return {"status": "empty", "file_hash": file_hash}
+
+        await ctx.info(f"✅ Completed ingestion: {file_name}, {total_chunks} chunks.")
+        await ctx.report_progress(progress=total_chunks, total=total_chunks)
         return {"status": "ingested", "file_hash": file_hash, "chunks": total_chunks}
 
     except Exception as e:
+        await ctx.info(f"❌ Error during ingestion: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 

@@ -336,7 +336,9 @@ def box_search_files(
             }
         )
     if len(results) == 0 or message != "":
-        results = {"tool_recommendation": "Use `box_list_files` and `box_fetch_file` tools if folder is known, otherwise ask folder name from user."}
+        results = {
+            "tool_recommendation": "Use `box_list_files` and `box_fetch_file` tools if folder is known, otherwise ask folder name from user."
+        }
 
     return make_response(True, "search_files", message or "Search completed.", results)
 
@@ -466,7 +468,7 @@ def box_fetch_file(metadata: Dict, file_id: str, download: bool = False) -> Dict
         )
 
     access_token = creds["access_token"]
-
+    message = "File details fetched."
     # 1. Get file metadata
     url = f"https://api.box.com/2.0/files/{file_id}"
     params = {"fields": "id,name,type,size,owned_by"}
@@ -515,8 +517,9 @@ def box_fetch_file(metadata: Dict, file_id: str, download: bool = False) -> Dict
             result["message"] = {
                 "delegate": "vector_ingest_box",
                 "key": name,
-                "reason": f"File size {size/1024:.1f} KB exceeds threshold ({MAX_PDF_SIZE/1024} KB). Use 'vector_ingest_box' tool.",
+                "reason": f"File size {size/1024:.1f} KB exceeds threshold ({MAX_PDF_SIZE/1024} KB). Kindly Use `vector_ingest_box` tool for vector ingestion",
             }
+            message = result["message"]["reason"]
 
         else:
             text_parts = []
@@ -536,9 +539,7 @@ def box_fetch_file(metadata: Dict, file_id: str, download: bool = False) -> Dict
         except Exception:
             result["preview"] = "[Binary file — no preview available]"
 
-    return make_response(
-        True, "box_fetch_file", "✅ File details and preview fetched.", result
-    )
+    return make_response(True, "box_fetch_file", message, result)
 
 
 # ─── OAuth Endpoints ─────────────────────────────────────────────────────────

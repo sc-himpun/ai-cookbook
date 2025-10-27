@@ -51,7 +51,7 @@ class MCPOpenAIClient:
             # "jira": "http://localhost:8002/mcp-server/sse/",
             #"gitlab": "http://localhost:8017/mcp-server/sse/",
             #"github": "http://localhost:8010/mcp-server/sse/",
-            "s3": "http://localhost:8050/sse/",
+            # "s3": "http://localhost:8050/sse/",
             # "odata": "http://localhost:8016/mcp-server/sse/",
             #"asana": "http://localhost:8011/mcp-server/sse/",
             #"asana": "https://mcp.asana.com/sse",
@@ -77,7 +77,8 @@ class MCPOpenAIClient:
             # "zoom": "http://10.1.1.22:8019/mcp-server/sse",
             # "box": "http://10.1.1.22:8029/mcp-server/sse",
             # "zendesk": "http://10.1.1.22:9150/mcp-server/sse/",      
-            # "slack": "http://10.1.1.22:8003/mcp-server/sse"      
+            "slack": "http://10.1.1.22:8003/mcp-server/sse",
+            # "vector": "http://10.1.1.22:8060/sse"            
             }
 
         total_tools = 0
