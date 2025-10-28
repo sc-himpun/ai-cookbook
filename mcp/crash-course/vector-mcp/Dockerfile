@@ -5,13 +5,17 @@ WORKDIR /app
 # Install uv for faster package management
 RUN pip install uv
 
+# # Copy requirements file
+# COPY requirements.txt .
+
+# # Install dependencies using uv
+# RUN uv venv && uv pip install --index-strategy unsafe-best-match --no-cache-dir -r requirements.txt
+
 # Copy requirements file
-COPY requirements.txt .
+COPY requirements_match.txt .
 
 # Install dependencies using uv
-RUN uv venv && uv pip install --index-strategy unsafe-best-match --no-cache-dir -r requirements.txt
-# RUN uv pip install --system --index-strategy unsafe-best-match --no-cache-dir -r requirements.txt
-
+RUN uv venv && uv pip install --index-strategy unsafe-best-match --no-cache-dir -r requirements_match.txt
 
 # Copy application code
 COPY server.py .
