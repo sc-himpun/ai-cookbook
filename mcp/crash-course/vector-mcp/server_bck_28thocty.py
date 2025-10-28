@@ -1087,44 +1087,64 @@ def vector_query(metadata: dict, question: str, top_k: int = 3) -> dict:
     }
 
 
-@mcp.tool(name="vector_test_context_progress")
+@mcp.tool(name="vector_test_context_progress", streaming=True)
 async def vector_test_context_progress(
     context: Context,
-    metadata: dict,
+    metadata: dict | None = None,
     steps: int = 10,
-    delay: float = 1,
-) -> dict:
-    """
-    Test tool that uses context.info() and context.report_progress()
-    to simulate a streaming operation with incremental updates.
-    Works in FastMCP 2.10.5 (messages will appear in server logs).
+    delay: float = 1.0,
+) -> dict:  # type: ignore[override]
+    """Stream incremental progress updates.
+
+    This async generator yields a small dict for each step so that
+    the client can receive partial results while the tool runs.
+
+    Requirements for streaming in FastMCP 2.10.5:
+    1. Decorator must set ``streaming=True``.
+    2. Tool function must be an async generator (``yield`` inside).
+    3. Client must call ``session.stream_tool(...)``.
+     4. Use ``context.report_progress`` / ``context.info`` for side-channel
+         events.
+
+    Args:
+        context: FastMCP Context injected by framework.
+        metadata: Optional metadata (unused; present for parity with other
+            tools).
+        steps: Number of progress steps to simulate.
+        delay: Seconds to wait between steps.
+
+    Yields:
+    Dict with current progress info. Final yield includes status +
+    duration.
     """
     import asyncio
     import time
     start = time.time()
 
-    print(f"Context type: {type(context)}")
-    print(f"Context has info: {hasattr(context, 'info')}")
-    print(f"Context has report_progress: {hasattr(context, 'report_progress')}")                
     await context.info("🚀 vector_test_context_progress started")
+    await context.report_progress(progress=0, total=steps)
 
     for i in range(1, steps + 1):
         await asyncio.sleep(delay)
-        await context.info(f"🧩 Step {i}/{steps} in progress...")
+        # Emit progress meta-events
         await context.report_progress(progress=i, total=steps)
-        # try:
-        #     await context.report_progress(progress=i, total=steps)
-        # except Exception as e:
-        #     await context.info(f"⚠️ report_progress failed: {str(e)}")
+        await context.info(f"🧩 Step {i}/{steps} in progress...")
+        # Yield a chunk (becomes a streaming 'result' event for clients)
+        yield {
+            "step": i,
+            "total": steps,
+            "message": f"Completed step {i}/{steps}",
+            "percent": round(i / steps * 100, 2),
+        }
 
     total_time = round(time.time() - start, 2)
     await context.info(f"✅ Completed all {steps} steps in {total_time}s")
-
-    return {
+    # Final yield (client should treat last one as completion)
+    yield {
         "status": "ok",
         "steps": steps,
         "duration": total_time,
-        "note": "testing"
+        "note": "final",
     }
 
 
