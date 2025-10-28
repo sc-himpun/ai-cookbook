@@ -3,9 +3,12 @@
 from fastmcp import FastMCP, Context
 from starlette.applications import Starlette
 from starlette.routing import Route, Mount
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 from typing import Dict, List, Tuple, Iterable, Optional
 import hashlib
 import os
+import json
 import tempfile
 from google.oauth2.credentials import Credentials
 
@@ -469,36 +472,43 @@ def add_texts_batch(texts: List[str], metas: List[dict]) -> None:
 
 
 # @mcp.tool(name="vector_reset_index")
-def vector_reset_index() -> dict:
+def vector_reset_index(req: Request) -> dict:
     """Clears the in-memory FAISS index and de-dup state."""
     global session_index, embedded_hashes, file_hash_to_docids
+    _ = req
     session_index = None
     embedded_hashes = set()
     file_hash_to_docids = {}
-    return {"status": "reset"}
+    return JSONResponse({"status": "reset"})
 
 # ────────────────────────────────────────────────────────────────────────────
 # Tools
 
-@mcp.tool(name="vector_status")
-def vector_status() -> dict:
-    """Returns simple counters for the current in-memory index."""
+
+def _vector_status(req: Request) -> dict:
+    _ = req
     idx = get_index()
-    return {
+    return JSONResponse({
         "docs": (
             getattr(idx, "index", None).ntotal if getattr(idx, "index", None) else 0
         ),
         "files_ingested": len(embedded_hashes),
         "file_hashes": list(embedded_hashes),
-    }
+    })
 
+
+# @mcp.tool(name="vector_status")
+# def vector_status(metadata:Dict, req: Request = None) -> dict:
+#     """Returns simple counters for the current in-memory index."""
+#     _ = req
+#     return _vector_status(req)
 
 # ────────────────────────────────────────────────────────────────────────────
 # S3 ingest (streaming, low-memory, incremental embedding)
 
 
 @mcp.tool(name="vector_ingest_s3")
-async def vector_ingest_s3(
+async def vector_ingest_s3(  # noqa: C901
     context: Context,
     metadata: dict,
     key: str,
@@ -1132,6 +1142,7 @@ mcp_app = mcp.http_app(transport="sse")
 routes = [
     Mount("/mcp-server", app=mcp_app),
     Route("/resetindex", vector_reset_index),
+    Route("/status", _vector_status),
 ]
 app = Starlette(routes=routes, lifespan=mcp_app.lifespan)
 
