@@ -8,7 +8,7 @@ from starlette.responses import JSONResponse
 from typing import Dict, List, Tuple, Iterable, Optional
 import hashlib
 import os
-# import json  # unused
+import json
 import tempfile
 from google.oauth2.credentials import Credentials
 
@@ -311,172 +311,58 @@ def stream_s3_to_tempfile(body: StreamingBody) -> str:
 
 
 def stream_pdf_chunks_from_path(
-    path: str,
-    max_chunk_chars: int,
-    overlap: int,
-    use_page_labels: bool = True,
-    page_number_offset: int = 0,
-) -> Iterable[dict]:
-    """Stream PDF text with buffered chunking and optional page label detection.
+    path: str, max_chunk_chars: int, overlap: int
+) -> Iterable[str]:
+    """
+    Yield text chunks from a PDF file on disk using incremental buffer and overlap split.
 
-    Accumulates consecutive pages until buffer >= 2 * max_chunk_chars, then splits into
-    chunks via RecursiveCharacterTextSplitter. Yields dicts:
-        {"text": str, "page_number": int, optional "page_range": (start, end)}
+    Args:
+        path (str): Path to the PDF file.
+        max_chunk_chars (int): Maximum characters per chunk.
+        overlap (int): Number of overlapping characters between chunks.
 
-    If use_page_labels is True and all pages in a buffer range have convertible labels
-    (Arabic digits or Roman numerals), logical numbering replaces physical numbering for
-    page_number / page_range.
+    Yields:
+        str: Text chunk from the PDF.
     """
     doc = fitz.open(path)
     try:
-        # Collect page labels (PyMuPDF version differences handled)
-        page_labels: List[Optional[str]] = []
-        if use_page_labels:
-            try:
-                labels_fn = getattr(doc, "get_page_labels", None)
-                if callable(labels_fn):
-                    lbls = labels_fn()
-                    if isinstance(lbls, list):
-                        page_labels = [l if l is not None else None for l in lbls]
-                    elif isinstance(lbls, dict):
-                        # Some PyMuPDF versions return mapping to dict objects with 'label' key
-                        for i in range(doc.page_count):
-                            raw = lbls.get(i)
-                            if isinstance(raw, dict):
-                                page_labels.append(raw.get("label"))
-                            else:
-                                page_labels.append(raw)
-                    else:
-                        page_labels = [None] * doc.page_count
-                else:
-                    # Older API per page
-                    get_label = getattr(doc, "getPageLabel", None)
-                    if callable(get_label):
-                        for i in range(doc.page_count):
-                            raw = get_label(i)
-                            if isinstance(raw, dict):
-                                page_labels.append(raw.get("label"))
-                            else:
-                                page_labels.append(raw)
-                    else:
-                        page_labels = [None] * doc.page_count
-            except Exception:
-                page_labels = [None] * doc.page_count
-
-        def _roman_to_int(s: str) -> Optional[int]:
-            vals = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
-            s_up = s.upper()
-            if not s_up or not all(ch in vals for ch in s_up):
-                return None
-            total = 0
-            prev = 0
-            for ch in reversed(s_up):
-                v = vals[ch]
-                if v < prev:
-                    total -= v
-                else:
-                    total += v
-                    prev = v
-            return total
-
-        def _label_to_int(label: Optional[str | int]) -> Optional[int]:
-            if label is None:
-                return None
-            if isinstance(label, int):
-                return label
-            if not isinstance(label, str):
-                return None
-            lab = label.strip()
-            if not lab:
-                return None
-            if lab.isdigit():
-                try:
-                    return int(lab)
-                except Exception:
-                    return None
-            return _roman_to_int(lab)
-
+        buffer = ""
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=max_chunk_chars,
             chunk_overlap=overlap,
             separators=["\n\n", "\n", " ", ""],
         )
-        buffer = ""
-        phys_start = None  # physical first page number (1-based)
-        phys_last = None   # physical last page number (1-based)
-
-        def flush_buffer():
-            nonlocal buffer, phys_start, phys_last
-            if not buffer.strip() or phys_start is None or phys_last is None:
-                buffer = ""
-                phys_start = None
-                phys_last = None
-                return
-            # Attempt logical numbering
-            logical_start = phys_start
-            logical_end = phys_last
-            if use_page_labels and page_labels and phys_start <= phys_last:
-                label_ints: List[int] = []
-                convertible = True
-                for idx in range(phys_start - 1, phys_last):  # zero-based
-                    val = _label_to_int(page_labels[idx] if idx < len(page_labels) else None)
-                    if val is None:
-                        convertible = False
-                        break
-                    label_ints.append(val)
-                if convertible and label_ints:
-                    logical_start = label_ints[0]
-                    logical_end = label_ints[-1]
-            # Apply manual offset (can be negative); only if labels not used or user wants shift
-            if page_number_offset and (not use_page_labels or logical_start == phys_start):
-                logical_start += page_number_offset
-                logical_end += page_number_offset
-            for raw in splitter.split_text(buffer):
-                txt = raw.strip()
-                if not txt:
-                    continue
-                out = {
-                    "text": txt,
-                    "page_number": logical_start,
-                    "physical_page_number": phys_start,
-                }
-                if logical_start != logical_end:
-                    out["page_range"] = (logical_start, logical_end)
-                if phys_start != phys_last:
-                    out["physical_page_range"] = (phys_start, phys_last)
-                yield out
-            # Reset
-            buffer = ""
-            phys_start = None
-            phys_last = None
-
-        for page_index in range(doc.page_count):
-            page = doc.load_page(page_index)
+        for page in doc:
             page_text = page.get_text("text") or ""
-            if not page_text:
-                continue
-            if buffer == "":
-                phys_start = page_index + 1
-            phys_last = page_index + 1
-            buffer += page_text + "\n"
-            if len(buffer) >= max_chunk_chars * 2:
-                # Flush buffered pages; generator from flush_buffer yields chunks
-                for item in flush_buffer():
-                    yield item
-
-        # Flush remaining buffer
-        for item in flush_buffer():
-            yield item
+            if page_text:
+                buffer += page_text
+                # flush when buffer grows
+                if len(buffer) >= max_chunk_chars * 2:
+                    for c in splitter.split_text(buffer):
+                        if c.strip():
+                            yield c
+                    buffer = ""
+        if buffer:
+            for c in splitter.split_text(buffer):
+                if c.strip():
+                    yield c
     finally:
         doc.close()
 
 
 def stream_docx_chunks_from_path(
     path: str, max_chunk_chars: int, overlap: int
-) -> Iterable[dict]:
+) -> Iterable[str]:
     """
-    Yield dict chunks from a DOCX file. Page numbers aren't accessible; page_number is None.
-    Each yielded item: {"text": <chunk>, "page_number": None}
+    Yield text chunks from a DOCX file by reading paragraphs and splitting incrementally.
+
+    Args:
+        path (str): Path to the DOCX file.
+        max_chunk_chars (int): Maximum characters per chunk.
+        overlap (int): Number of overlapping characters between chunks.
+
+    Yields:
+        str: Text chunk from the DOCX file.
     """
     doc = Document(path)
     buffer = ""
@@ -491,25 +377,29 @@ def stream_docx_chunks_from_path(
             buffer += t + "\n"
             if len(buffer) >= max_chunk_chars * 2:
                 for c in splitter.split_text(buffer):
-                    c_strip = c.strip()
-                    if c_strip:
-                        yield {"text": c_strip, "page_number": None}
+                    if c.strip():
+                        yield c
                 buffer = ""
     if buffer:
         for c in splitter.split_text(buffer):
-            c_strip = c.strip()
-            if c_strip:
-                yield {"text": c_strip, "page_number": None}
+            if c.strip():
+                yield c
 
 
 def stream_text_chunks_iter_lines(
     body: StreamingBody, max_chunk_chars: int, overlap: int, encoding: str = "utf-8"
-) -> Iterable[dict]:
+) -> Iterable[str]:
     """
-    Yield dict chunks from a text file on S3 by iterating lines to avoid loading
-    full file in memory. page_number is always None for plain text.
+    Yield text chunks from a text file on S3 by iterating lines; avoids loading full file in memory.
 
-    Yields each: {"text": <chunk>, "page_number": None}
+    Args:
+        body (StreamingBody): S3 streaming body object.
+        max_chunk_chars (int): Maximum characters per chunk.
+        overlap (int): Number of overlapping characters between chunks.
+        encoding (str): Text encoding (default: 'utf-8').
+
+    Yields:
+        str: Text chunk from the file.
     """
     buffer = ""
     splitter = RecursiveCharacterTextSplitter(
@@ -525,15 +415,13 @@ def stream_text_chunks_iter_lines(
         buffer += line + "\n"
         if len(buffer) >= max_chunk_chars * 2:
             for c in splitter.split_text(buffer):
-                c_strip = c.strip()
-                if c_strip:
-                    yield {"text": c_strip, "page_number": None}
+                if c.strip():
+                    yield c
             buffer = ""
     if buffer:
         for c in splitter.split_text(buffer):
-            c_strip = c.strip()
-            if c_strip:
-                yield {"text": c_strip, "page_number": None}
+            if c.strip():
+                yield c
 
 
 def guess_mime_from_key(key: str) -> str:
@@ -639,8 +527,6 @@ async def vector_ingest_s3(  # noqa: C901
     max_chunk_size: int = 1200,
     overlap: int = 200,
     embed_batch: int = 32,
-    use_page_labels: bool = True,
-    page_number_offset: int = 0,
 ) -> dict:
     """
     Async ingestion of an S3 object into FAISS with periodic progress updates
@@ -687,7 +573,6 @@ async def vector_ingest_s3(  # noqa: C901
             "bucket": bucket,
             "provider": "s3",
             "file_hash": file_hash,
-            "url": f"s3://{bucket}/{key}",
         }
 
         # Rolling batch container
@@ -712,13 +597,7 @@ async def vector_ingest_s3(  # noqa: C901
 
         # Choose iterator based on MIME
         if mime == "application/pdf":
-            iterator = stream_pdf_chunks_from_path(
-                tmp_path,
-                max_chunk_size,
-                overlap,
-                use_page_labels=use_page_labels,
-                page_number_offset=page_number_offset,
-            )
+            iterator = stream_pdf_chunks_from_path(tmp_path, max_chunk_size, overlap)
         elif mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
             iterator = stream_docx_chunks_from_path(tmp_path, max_chunk_size, overlap)
         else:
@@ -727,29 +606,13 @@ async def vector_ingest_s3(  # noqa: C901
             body2: StreamingBody = obj2["Body"]
             iterator = stream_text_chunks_iter_lines(body2, max_chunk_size, overlap, encoding="utf-8")
 
-        # Process chunks incrementally; total unknown until end (total=None)
+        # Process chunks incrementally
+        # We'll report progress after each flush; total unknown until done (pass total=None)
         for chunk in iterator:
-            if isinstance(chunk, dict):
-                chunk_text = (chunk.get("text") or "").strip()
-                page_number = chunk.get("page_number")
-                page_range = chunk.get("page_range")
-            else:
-                chunk_text = (str(chunk) or "").strip()
-                page_number = None
-                page_range = None
-            if not chunk_text:
+            if not chunk.strip():
                 continue
-            batch_texts.append(chunk_text)
-            meta_entry = {**metabase, "chunk_index": chunk_idx, "page_number": page_number}
-            if page_range:
-                meta_entry["page_range"] = page_range
-            # carry physical numbering if present
-            if isinstance(chunk, dict):
-                if "physical_page_number" in chunk:
-                    meta_entry["physical_page_number"] = chunk["physical_page_number"]
-                if "physical_page_range" in chunk:
-                    meta_entry["physical_page_range"] = chunk["physical_page_range"]
-            batch_metas.append(meta_entry)
+            batch_texts.append(chunk)
+            batch_metas.append({**metabase, "chunk_index": chunk_idx})
             chunk_idx += 1
             if len(batch_texts) >= embed_batch:
                 flush_batch()
@@ -812,8 +675,6 @@ def vector_ingest_gdrive(  # noqa: C901
     embed_batch: int = 32,
     file_name: Optional[str] = None,
     url: Optional[str] = None,
-    use_page_labels: bool = True,
-    page_number_offset: int = 0,
 ) -> dict:
     """
     Ingest a single Google Drive file into FAISS using disk-backed streaming and incremental chunk → embed → insert.
@@ -897,52 +758,24 @@ def vector_ingest_gdrive(  # noqa: C901
 
         if mime == "application/pdf":
             chunk_idx = 0
-            for chunk in stream_pdf_chunks_from_path(
-                tmp_path,
-                max_chunk_size,
-                overlap,
-                use_page_labels=use_page_labels,
-                page_number_offset=page_number_offset,
-            ):
-                c_text = (chunk.get("text") if isinstance(chunk, dict) else str(chunk)) or ""
-                c_text = c_text.strip()
-                if not c_text:
-                    continue
-                page_number = chunk.get("page_number") if isinstance(chunk, dict) else None
-                page_range = chunk.get("page_range") if isinstance(chunk, dict) else None
-                meta_entry = {**metabase, "chunk_index": chunk_idx, "page_number": page_number}
-                if page_range:
-                    meta_entry["page_range"] = page_range
-                if isinstance(chunk, dict):
-                    if "physical_page_number" in chunk:
-                        meta_entry["physical_page_number"] = chunk["physical_page_number"]
-                    if "physical_page_range" in chunk:
-                        meta_entry["physical_page_range"] = chunk["physical_page_range"]
-                batch_texts.append(c_text)
-                batch_metas.append(meta_entry)
+            for chunk in stream_pdf_chunks_from_path(tmp_path, max_chunk_size, overlap):
+                batch_texts.append(chunk)
+                batch_metas.append({**metabase, "chunk_index": chunk_idx})
                 chunk_idx += 1
                 if len(batch_texts) >= embed_batch:
                     flush_batch()
             flush_batch()
 
-        elif mime == (
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif (
+            mime
+            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ):
             chunk_idx = 0
             for chunk in stream_docx_chunks_from_path(
                 tmp_path, max_chunk_size, overlap
             ):
-                c_text = (chunk.get("text") if isinstance(chunk, dict) else str(chunk)) or ""
-                c_text = c_text.strip()
-                if not c_text:
-                    continue
-                page_number = chunk.get("page_number") if isinstance(chunk, dict) else None
-                batch_texts.append(c_text)
-                batch_metas.append({
-                    **metabase,
-                    "chunk_index": chunk_idx,
-                    "page_number": page_number,
-                })
+                batch_texts.append(chunk)
+                batch_metas.append({**metabase, "chunk_index": chunk_idx})
                 chunk_idx += 1
                 if len(batch_texts) >= embed_batch:
                     flush_batch()
@@ -1063,7 +896,7 @@ def vector_ingest_text(
         if not c.strip():
             continue
         batch_texts.append(c)
-        batch_metas.append({**metabase, "chunk_index": chunk_idx, "page_number": None})
+        batch_metas.append({**metabase, "chunk_index": chunk_idx})
         chunk_idx += 1
         if len(batch_texts) >= embed_batch:
             add_texts_batch(batch_texts, batch_metas)
@@ -1093,8 +926,6 @@ def vector_ingest_box(  # noqa: C901
     overlap: int = 200,
     embed_batch: int = 32,
     url: Optional[str] = None,
-    use_page_labels: bool = True,
-    page_number_offset: int = 0,
 ) -> dict:
     """
     Ingest a single Box file into FAISS using streaming split/insert.
@@ -1155,54 +986,34 @@ def vector_ingest_box(  # noqa: C901
             total_chunks += len(batch_texts)
             batch_texts, batch_metas = [], []
 
-        # PDF (dict chunks with page provenance)
+        # PDF
         if mime == "application/pdf":
             chunk_idx = 0
-            for chunk in stream_pdf_chunks_from_path(
-                tmp_path,
-                max_chunk_size,
-                overlap,
-                use_page_labels=use_page_labels,
-                page_number_offset=page_number_offset,
-            ):
-                c_text = (chunk.get("text") if isinstance(chunk, dict) else str(chunk)) or ""
-                c_text = c_text.strip()
-                if not c_text:
-                    continue
-                page_number = chunk.get("page_number") if isinstance(chunk, dict) else None
-                page_range = chunk.get("page_range") if isinstance(chunk, dict) else None
-                meta_entry = {**metabase, "chunk_index": chunk_idx, "page_number": page_number}
-                if page_range:
-                    meta_entry["page_range"] = page_range
-                if isinstance(chunk, dict):
-                    if "physical_page_number" in chunk:
-                        meta_entry["physical_page_number"] = chunk["physical_page_number"]
-                    if "physical_page_range" in chunk:
-                        meta_entry["physical_page_range"] = chunk["physical_page_range"]
-                batch_texts.append(c_text)
-                batch_metas.append(meta_entry)
+            for chunk in stream_pdf_chunks_from_path(tmp_path, max_chunk_size, overlap):
+                batch_texts.append(chunk)
+                batch_metas.append({**metabase, "chunk_index": chunk_idx})
                 chunk_idx += 1
                 if len(batch_texts) >= embed_batch:
                     flush_batch()
             flush_batch()
 
-        # DOCX (dict chunks, no page numbers)
-        elif mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        # DOCX
+        elif (
+            mime
+            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ):
             chunk_idx = 0
-            for chunk in stream_docx_chunks_from_path(tmp_path, max_chunk_size, overlap):
-                c_text = (chunk.get("text") if isinstance(chunk, dict) else str(chunk)) or ""
-                c_text = c_text.strip()
-                if not c_text:
-                    continue
-                page_number = chunk.get("page_number") if isinstance(chunk, dict) else None
-                batch_texts.append(c_text)
-                batch_metas.append({**metabase, "chunk_index": chunk_idx, "page_number": page_number})
+            for chunk in stream_docx_chunks_from_path(
+                tmp_path, max_chunk_size, overlap
+            ):
+                batch_texts.append(chunk)
+                batch_metas.append({**metabase, "chunk_index": chunk_idx})
                 chunk_idx += 1
                 if len(batch_texts) >= embed_batch:
                     flush_batch()
             flush_batch()
 
-        # TEXT (assign page_number None for consistency)
+        # TEXT
         else:
             splitter = RecursiveCharacterTextSplitter(
                 chunk_size=max_chunk_size,
@@ -1222,7 +1033,9 @@ def vector_ingest_box(  # noqa: C901
                         for c in splitter.split_text(buffer):
                             if c.strip():
                                 batch_texts.append(c)
-                                batch_metas.append({**metabase, "chunk_index": chunk_idx, "page_number": None})
+                                batch_metas.append(
+                                    {**metabase, "chunk_index": chunk_idx}
+                                )
                                 chunk_idx += 1
                                 if len(batch_texts) >= embed_batch:
                                     flush_batch()
@@ -1231,7 +1044,7 @@ def vector_ingest_box(  # noqa: C901
                 for c in splitter.split_text(buffer):
                     if c.strip():
                         batch_texts.append(c)
-                        batch_metas.append({**metabase, "chunk_index": chunk_idx, "page_number": None})
+                        batch_metas.append({**metabase, "chunk_index": chunk_idx})
                         chunk_idx += 1
                         if len(batch_texts) >= embed_batch:
                             flush_batch()
