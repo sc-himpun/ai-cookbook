@@ -471,37 +471,49 @@ def add_texts_batch(texts: List[str], metas: List[dict]) -> None:
     idx.add_texts(texts=texts, metadatas=metas)
 
 
-# @mcp.tool(name="vector_reset_index")
-def vector_reset_index(req: Request) -> dict:
+def reset_index():
     """Clears the in-memory FAISS index and de-dup state."""
     global session_index, embedded_hashes, file_hash_to_docids
-    _ = req
     session_index = None
     embedded_hashes = set()
     file_hash_to_docids = {}
-    return JSONResponse({"status": "reset"})
+    return {"status": "reset"}
+
+
+def _vector_reset_index(req: Request) -> JSONResponse:
+    return JSONResponse(reset_index())
+
+
+@mcp.tool(name="vector_reset_index")
+def vector_reset_index(metadata: dict) -> dict:
+    return reset_index()
 
 # ────────────────────────────────────────────────────────────────────────────
 # Tools
 
 
-def _vector_status(req: Request) -> dict:
-    _ = req
+def _get_vector_status():
     idx = get_index()
-    return JSONResponse({
+    return {
         "docs": (
-            getattr(idx, "index", None).ntotal if getattr(idx, "index", None) else 0
+            getattr(idx, "index", None).ntotal if getattr(idx, "index", None) else 0 # type: ignore
         ),
         "files_ingested": len(embedded_hashes),
         "file_hashes": list(embedded_hashes),
-    })
+    }
 
 
-# @mcp.tool(name="vector_status")
-# def vector_status(metadata:Dict, req: Request = None) -> dict:
-#     """Returns simple counters for the current in-memory index."""
-#     _ = req
-#     return _vector_status(req)
+def _vector_status(req: Request) -> JSONResponse:
+    _ = req
+    resp = _get_vector_status()
+    return JSONResponse(resp)
+
+
+@mcp.tool(name="vector_status")
+def vector_status(metadata: Dict) -> dict:
+    """Returns simple counters for the current in-memory index."""
+    _ = metadata
+    return _get_vector_status()
 
 # ────────────────────────────────────────────────────────────────────────────
 # S3 ingest (streaming, low-memory, incremental embedding)
