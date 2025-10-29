@@ -1153,7 +1153,7 @@ async def vector_test_context_progress(
 mcp_app = mcp.http_app(transport="sse")
 routes = [
     Mount("/mcp-server", app=mcp_app),
-    Route("/resetindex", vector_reset_index),
+    Route("/resetindex", _vector_reset_index),
     Route("/status", _vector_status),
 ]
 app = Starlette(routes=routes, lifespan=mcp_app.lifespan)
