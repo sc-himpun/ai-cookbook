@@ -24,6 +24,10 @@ SLACK_SCOPES = os.getenv(
     "SLACK_SCOPES",
     "users:read,users:read.email,channels:read,groups:read,im:read,mpim:read,chat:write,channels:history",
 )
+SLACK_USER_SCOPES = os.getenv(
+    "SLACK_USER_SCOPES",
+    "users:read,users:read.email,channels:read,groups:read,im:read,mpim:read,chat:write,channels:history,search:read",
+)
 
 user_tokens: Dict[str, str] = {}
 mcp = FastMCP("SlackToolkit")
@@ -560,7 +564,7 @@ async def slack_authorize(request: Request):
     params = {
         "client_id": CLIENT_ID,
         "scope": SLACK_SCOPES,  # Bot scopes
-        "user_scope": SLACK_SCOPES,  # User scopes
+        "user_scope": SLACK_USER_SCOPES,  # User scopes
         "redirect_uri": REDIRECT_URI,
     }
     url = f"https://slack.com/oauth/v2/authorize?{urlencode(params)}"
@@ -663,6 +667,6 @@ if __name__ == "__main__":
         app,
         host="0.0.0.0",
         port=PORT,
-        # ssl_keyfile="localhost-key.pem", #For authentication, it requires a valid certificate and key
+        # ssl_keyfile="localhost-key.pem",  #For authentication, it requires a valid certificate and key
         # ssl_certfile="localhost.pem"
     )

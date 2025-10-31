@@ -12,10 +12,10 @@ RUN pip install uv
 # RUN uv venv && uv pip install --index-strategy unsafe-best-match --no-cache-dir -r requirements.txt
 
 # Copy requirements file
-COPY requirements_match.txt .
+COPY requirements.txt .
 
 # Install dependencies using uv
-RUN uv venv && uv pip install --index-strategy unsafe-best-match --no-cache-dir -r requirements_match.txt
+RUN uv venv && uv pip install --index-strategy unsafe-best-match --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY server.py .
