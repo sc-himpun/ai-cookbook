@@ -1337,6 +1337,28 @@ async def vector_test_context_progress(
     }
 
 
+@mcp.tool(name="vector_long_task", description="Simulates a task that takes time.")
+async def run_long_task(metadata: dict, duration_seconds: int, ctx: Context) -> str:
+    """
+    Simulates a task, reporting progress and logging using Context.
+    """
+    import anyio
+    # 3. Use the context object!
+    await ctx.info(f"Starting long task for {duration_seconds} seconds.")
+
+    total_steps = 5
+    for i in range(total_steps):
+        step = i + 1
+        await ctx.debug(f"Working on step {step}/{total_steps}...")
+        # Simulate work
+        await anyio.sleep(duration_seconds / total_steps)
+        # Report progress (current step, total steps)
+        await ctx.report_progress(step, total_steps)
+
+    await ctx.info("Long task completed!")
+    return f"Finished simulated task of {duration_seconds} seconds."
+
+
 mcp_app = mcp.http_app(transport="sse")
 routes = [
     Mount("/mcp-server", app=mcp_app),
