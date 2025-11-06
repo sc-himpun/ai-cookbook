@@ -569,6 +569,7 @@ def gdrive_download_file_content(service, file_id: str) -> Dict:
               suggesting the use of `vector_ingest_gdrive` for embedding-based search.
             - For text-like files (CSV, TXT, JSON, Markdown): Returns decoded UTF-8 text.
             - For PDFs without extractable text: Returns a warning message.
+            - For google docs/spreadsheets/presentations: Exports to plain text or CSV.
 
     Notes:
         - Uses Google Drive API's `files().get_media()` to fetch raw bytes.
@@ -579,55 +580,71 @@ def gdrive_download_file_content(service, file_id: str) -> Dict:
         - This function is a low-level helper used internally by higher-level tools
           (e.g., `gdrive_fetch_file`) and should not be exposed directly in the UI.
     """
-    # Step 1: Check metadata for file size & type
-    file_meta = (
-        service.files().get(fileId=file_id, fields="name, mimeType, size").execute()
-    )
+    # Step 1: Get file metadata
+    file_meta = service.files().get(
+        fileId=file_id, fields="name, mimeType, size"
+    ).execute()
     mime_type = file_meta.get("mimeType", "")
     file_size = int(file_meta.get("size", 0) or 0)
 
-    # Step 2: Download raw bytes
-    request = service.files().get_media(fileId=file_id)
     fh = io.BytesIO()
+
+    # ---- Handle Google Docs Editors files ----
+    if mime_type.startswith("application/vnd.google-apps."):
+        export_mime = None
+
+        # Map Google Docs formats to export types
+        export_map = {
+            "application/vnd.google-apps.document": "text/plain",   # Google Docs → plain text
+            "application/vnd.google-apps.spreadsheet": "text/csv",   # Sheets → CSV
+            "application/vnd.google-apps.presentation": "text/plain"  # Slides → text summary
+        }
+
+        export_mime = export_map.get(mime_type)
+        if not export_mime:
+            return {
+                "data": f"⚠️ Export not supported for this Google format ({mime_type})."
+            }
+
+        # Export as the chosen MIME type
+        try:
+            request = service.files().export(fileId=file_id, mimeType=export_mime)
+            content = request.execute()
+            text = content.decode("utf-8", errors="ignore") if isinstance(content, bytes) else content
+            return {"data": text}
+        except Exception as e:
+            return {"data": f"❌ Failed to export Google Doc: {str(e)}"}
+
+    # ---- Handle regular binary/text files ----
+    request = service.files().get_media(fileId=file_id)
     downloader = MediaIoBaseDownload(fh, request)
     done = False
     while not done:
         _, done = downloader.next_chunk()
     fh.seek(0)
 
-    # Step 3: Process based on type
+    # ---- Process based on MIME type ----
     if mime_type == "application/pdf":
         if file_size > MAX_PDF_SIZE:
             return {
                 "delegate": "vector_ingest_gdrive",
                 "key": file_meta.get("name", "unknown"),
                 "reason": (
-                    f"File size {file_size} exceeds threshold "
-                    "{file_size/1024:.1f} KB. "
-                    "Use 'vector_ingest_gdrive' for ingesting the chunks as embeddings "
-                    "and searching."
+                    f"File size {file_size/1024:.1f} KB exceeds limit. "
+                    "Use 'vector_ingest_gdrive' for chunked embedding ingestion."
                 ),
             }
 
-        # Memory-efficient PyMuPDF extraction
         text_parts = []
         with fitz.open(stream=fh.read(), filetype="pdf") as doc:
             for page in doc:
-                text = page.get_text(
-                    "text", flags=fitz.TEXT_PRESERVE_WHITESPACE
-                )  # type: ignore
+                text = page.get_text("text", flags=fitz.TEXT_PRESERVE_WHITESPACE)
                 if text.strip():
                     text_parts.append(text)
-        return {
-            "data": (
-                "\n".join(text_parts)
-                if text_parts
-                else "No extractable text found in PDF."
-            )
-        }
+        return {"data": "\n".join(text_parts) if text_parts else "No extractable text found in PDF."}
 
     else:
-        # Assume text-like file (CSV, TXT, JSON, etc.)
+        # Treat as text-based file
         return {"data": fh.read().decode("utf-8", errors="ignore")}
 
 
