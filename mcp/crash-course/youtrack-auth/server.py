@@ -42,6 +42,8 @@ mcp = FastMCP("youtrack-auth-mcp", host="0.0.0.0", port=PORT)
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────
+
+
 def refresh_access_token(base_url: str, refresh_token: str) -> Dict[str, str]:
     """Refresh YouTrack access token using refresh_token."""
     token_url = f"{base_url}/hub/api/rest/oauth2/token"
@@ -136,6 +138,93 @@ def extract_state(issue: dict) -> Optional[str]:
 
     # fallback
     return None
+
+
+def _youtrack_list_projects_internal(metadata: dict) -> dict:
+    """
+    Internal reusable function to list all YouTrack projects accessible to the authenticated user.
+
+    Parameters
+    ----------
+    metadata : dict
+        Dictionary containing YouTrack credentials and access info (must include 'url' and 'access_token').
+
+    Returns
+    -------
+    dict
+        {
+            "success": bool,         # True if request succeeded, False otherwise
+            "projects": list[dict],  # List of projects, each with 'id', 'key', 'name'
+            "error": str            # Error message if request failed (only present if success is False)
+        }
+
+    Notes
+    -----
+    - Uses YouTrack REST API endpoint `/api/admin/projects`.
+    - This function is intended for internal use by MCP tools and not exposed directly as an MCP tool.
+    """
+    creds = get_youtrack_creds(metadata)
+    url = f"{creds['url']}/api/admin/projects?fields=id,key,name"
+    r = requests.get(url, headers=creds["headers"])
+    if r.status_code != 200:
+        return {"success": False, "error": r.text}
+    return {
+        "success": True,
+        "projects": [
+            {
+                "id": p.get("id"),
+                "key": p.get("key"),
+                "name": p.get("name"),
+                "url": (
+                    f"{creds['url']}/projects/{p.get('id')}" if p.get("id") else None
+                ),
+            }
+            for p in r.json()
+        ],
+    }
+
+
+@mcp.tool(name="youtrack_list_projects")
+def youtrack_list_projects(metadata: dict) -> dict:
+    """
+    List all YouTrack projects available to the authenticated user via the MCP tool interface.
+
+    Parameters
+    ----------
+    metadata : dict
+        Dictionary containing YouTrack credentials and access info (must include 'url' and 'access_token').
+
+    Returns
+    -------
+    dict
+        {
+            "success": bool,                # True if request succeeded, False otherwise
+            "action": "list_projects",     # Action name for MCP tool
+            "message": str,                 # Human-readable summary
+            "data": list[dict] | dict       # List of projects if success, error details if failed
+        }
+
+    Notes
+    -----
+    - Uses YouTrack REST API endpoint `/api/admin/projects`.
+    - Each project dictionary contains: {"id": str, "key": str, "name": str}
+    - Useful for discovering project keys/IDs for ticket creation, reporting, or other project-related operations.
+    - If the request fails, 'data' will contain an 'error' field with details.
+    """
+    result = _youtrack_list_projects_internal(metadata)
+    if not result["success"]:
+        return {
+            "success": False,
+            "action": "list_projects",
+            "message": "Failed to fetch projects",
+            "data": {"error": result["error"]},
+        }
+    return {
+        "success": True,
+        "action": "list_projects",
+        "message": f"Retrieved {len(result['projects'])} projects",
+        "data": result["projects"],
+    }
 
 
 @mcp.tool(name="youtrack_list_issues")
@@ -271,6 +360,53 @@ def list_issues(
         "action": "list_issues",
         "message": f"Retrieved {len(results)} issues",
         "data": results,
+    }
+
+
+@mcp.tool(name="youtrack_create_issue")
+def youtrack_create_issue(
+    metadata: dict,
+    project_key: str,
+    summary: str,
+    description: Optional[str] = None,
+    issue_type: Optional[str] = None,
+) -> dict:
+    """
+    Create a new issue (ticket) in YouTrack.
+
+    Parameters
+    ----------
+    metadata : dict
+        Dictionary containing YouTrack credentials and access info.
+    project_key : str, required
+        The project key (e.g., "PROJ").
+    summary : str, required
+        The issue summary or title.
+    description : str, optional
+        The issue description.
+    issue_type : str, optional
+        Type of the issue.
+
+    Returns
+    -------
+    dict
+        A dictionary with the following structure:
+        {
+            "success": bool,        # True if the request succeeded, False otherwise
+            "action": str,         # Action name ("create_issue")
+            "message": str,        # Human-readable summary
+            "data": dict           # Contains error message and project list if unsupported
+        }
+    """
+    _, _, _, _ = project_key, summary, description, issue_type
+    projects = _youtrack_list_projects_internal(metadata)
+    return {
+        "success": False,
+        "action": "create_issue",
+        "message": "Currently creating new issue is not supported for youtrack.",
+        "data": {
+            "error": f"Currently creating new issue is not supported for youtrack. Kindly create the issues manually in respective projects given below:- f{projects}"
+        },
     }
 
 

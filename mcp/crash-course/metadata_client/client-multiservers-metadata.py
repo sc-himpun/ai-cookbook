@@ -47,8 +47,8 @@ class MCPOpenAIClient:
             # "vector": "http://localhost:8060/mcp-server/sse",
           
             # "onedrive-business_sharepoint": "http://localhost:8007/mcp-server/sse/",
-            "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
-            # "jira": "http://localhost:8002/mcp-server/sse/",
+            # "gmail-gdrive": "http://localhost:8000/mcp-server/sse/",
+            "jira": "http://localhost:8002/mcp-server/sse/",
             #"gitlab": "http://localhost:8017/mcp-server/sse/",
             #"github": "http://localhost:8010/mcp-server/sse/",
             # "s3": "http://localhost:8050/sse/",

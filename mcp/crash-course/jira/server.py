@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 import requests
 from dotenv import load_dotenv
@@ -243,12 +243,223 @@ def resolve_jira_site_url(metadata: Dict) -> Optional[str]:
                 if resource and resource.get("url"):
                     return resource["url"].rstrip("/")
         except Exception as e:
-            print(
-                f"Error: Failed to fetch accessible Jira resources. Details: {e}"
-            )
+            print(f"Error: Failed to fetch accessible Jira resources. Details: {e}")
 
     # No valid site resolved
     return None
+
+
+@mcp.tool(name="jira_create_issue")
+def jira_create_issue(
+    metadata: Dict,
+    project_key: str,
+    summary: str,
+    description: str,
+    issue_type: str,
+    assignee_account_id: Optional[str] = None,
+    labels: Optional[List[str]] = None,
+    priority: Optional[str] = None,
+) -> dict:
+    """Create a new Jira issue.
+
+    Required:
+      - metadata: Jira auth (access_token, cloud_id, optional base_url).
+      - project_key: Project key (e.g. "MCPPROJECT").
+      - summary: Issue title.
+      - description: Plain text converted to ADF.
+      - issue_type: Issue type name (e.g. "Task").
+
+    Optional:
+      - assignee_account_id: Cloud accountId for assignee.
+      - labels: List of label strings.
+      - priority: Priority name (e.g. "High").
+
+    Returns standardized MCP response with key + URL.
+    """
+    action = "jira_create_issue"
+    try:
+        creds = get_jira_creds(metadata)
+        if not creds:
+            return make_response(
+                False, action, "Jira credentials not found in metadata."
+            )
+
+        access_token = creds["access_token"]
+        cloud_id = creds["cloud_id"]
+        site_url = resolve_jira_site_url(metadata)
+        if not site_url:
+            return make_response(
+                False, action, "Unable to resolve Jira site URL from metadata."
+            )
+
+        # Minimal validation
+        if not project_key or not summary or not issue_type:
+            return make_response(
+                False,
+                action,
+                "project_key, summary, and issue_type are required.",
+            )
+
+        # Convert description to Atlassian Document Format (ADF)
+        adf_description = {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": description or "(no description)",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        fields = {
+            "project": {"key": project_key},
+            "summary": summary,
+            "description": adf_description,
+            "issuetype": {"name": issue_type},
+        }
+
+        if assignee_account_id:
+            # Jira Cloud uses accountId for assignment
+            fields["assignee"] = {"accountId": assignee_account_id}
+        if labels:
+            fields["labels"] = labels
+        if priority:
+            # Accept name directly; Jira will resolve if valid
+            fields["priority"] = {"name": priority}
+
+        url = f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        payload = {"fields": fields}
+
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        if resp.status_code != 201:
+            return make_response(
+                False,
+                action,
+                f"Failed to create issue (status {resp.status_code})",
+                {"details": resp.text},
+            )
+
+        resp_data = resp.json()
+        key = resp_data.get("key")
+        issue_url = f"{site_url}/browse/{key}" if site_url and key else None
+
+        return make_response(
+            True,
+            action,
+            f"Issue {key} created successfully.",
+            {
+                "key": key,
+                "url": issue_url,
+                "summary": summary,
+                "issue_type": issue_type,
+                "assignee_account_id": assignee_account_id,
+                "labels": labels or [],
+                "priority": priority,
+            },
+        )
+    except Exception as e:
+        return make_response(False, action, f"Error creating issue: {str(e)}")
+
+
+@mcp.tool(name="jira_get_issue_types")
+def jira_get_issue_types(metadata: Dict, project_key: Optional[str] = None) -> dict:
+    """List available Jira issue types.
+
+    If a project_key is provided, fetch issue types valid for that project via
+    the create meta endpoint. Otherwise list global issue types.
+
+    Args:
+      metadata: Jira auth metadata.
+      project_key: Optional project key to scope types.
+
+    Returns MCP response with an array of issue type dicts:
+      {"name": "Task", "id": "10001", "description": "Standard task"}
+    """
+    action = "jira_get_issue_types"
+    try:
+        creds = get_jira_creds(metadata)
+        if not creds:
+            return make_response(
+                False, action, "Jira credentials not found in metadata."
+            )
+        access_token = creds["access_token"]
+        cloud_id = creds["cloud_id"]
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+        }
+
+        types: List[Dict] = []
+        if project_key:
+            # Project-scoped types via createmeta
+            url = (
+                f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue/"
+                "createmeta"
+            )
+            params = {"projectKeys": project_key, "expand": "projects.issuetypes"}
+            resp = requests.get(url, headers=headers, params=params, timeout=30)
+            if resp.status_code != 200:
+                return make_response(
+                    False,
+                    action,
+                    f"Failed to fetch project issue types ({resp.status_code})",
+                    {"details": resp.text},
+                )
+            data = resp.json()
+            projects = data.get("projects", [])
+            if not projects:
+                return make_response(
+                    True,
+                    action,
+                    f"No project meta returned for {project_key}.",
+                    {"issue_types": []},
+                )
+            for it in projects[0].get("issuetypes", []):
+                types.append(
+                    {
+                        "name": it.get("name"),
+                        "id": it.get("id"),
+                        "description": (it.get("description") or "").strip(),
+                    }
+                )
+        else:
+            # Global issue types
+            url = f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issuetype"
+            resp = requests.get(url, headers=headers, timeout=30)
+            if resp.status_code != 200:
+                return make_response(
+                    False,
+                    action,
+                    f"Failed to fetch global issue types ({resp.status_code})",
+                    {"details": resp.text},
+                )
+            for it in resp.json():
+                types.append(
+                    {
+                        "name": it.get("name"),
+                        "id": it.get("id"),
+                        "description": (it.get("description") or "").strip(),
+                    }
+                )
+
+        msg = f"Found {len(types)} issue types" + (
+            f" for {project_key}" if project_key else ""
+        )
+        return make_response(True, action, msg, {"issue_types": types})
+    except Exception as e:
+        return make_response(False, action, f"Error fetching issue types: {str(e)}")
 
 
 @mcp.tool(name="jira_search_issues")
