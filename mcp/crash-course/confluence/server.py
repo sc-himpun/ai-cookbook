@@ -25,7 +25,7 @@ DEFAULT_SCOPES = (
 )
 SCOPES = os.getenv("CONFLUENCE_SCOPES", DEFAULT_SCOPES).split()
 
-PORT = int(os.getenv("CONFLUENCE_MCP_PORT", "8003"))
+PORT = int(os.getenv("CONFLUENCE_MCP_PORT", "8071"))
 REDIRECT_URI = os.getenv(
     "CONFLUENCE_MCP_REDIRECT_URI", f"http://localhost:{PORT}/oauth2callback"
 )
