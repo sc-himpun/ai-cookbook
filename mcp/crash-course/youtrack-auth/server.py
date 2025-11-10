@@ -16,8 +16,7 @@ from datetime import datetime, timedelta
 load_dotenv()
 CLIENT_ID = os.getenv("YOUTRACK_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("YOUTRACK_CLIENT_SECRET", "")
-# PORT = 8089
-PORT = int(os.getenv("YOUTRACK_PORT", "8053"))
+PORT = int(os.getenv("YOUTRACK_PORT", "8089"))
 
 print(f"Using YouTrack CLIENT_ID: {CLIENT_ID}")
 print(f"Using YouTrack CLIENT_SECRET: {CLIENT_SECRET}")
@@ -1004,14 +1003,6 @@ async def _finalize_login(
 
     user_info = user_resp.json()
     email = user_info.get("email") or user_info.get("login") or "unknown"
-
-    # # You may want to persist this securely (DB, Redis, etc.)
-    # user_tokens[email] = {
-    #     "access_token": access_token,
-    #     "refresh_token": refresh_token,
-    #     "expires_in": expires_in,
-    #     "url": base_url,
-    # }
 
     return JSONResponse(
         {
