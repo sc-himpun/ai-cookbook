@@ -249,6 +249,129 @@ def resolve_jira_site_url(metadata: Dict) -> Optional[str]:
     return None
 
 
+def resolve_jira_assignee(
+    access_token: str,
+    cloud_id: str,
+    project_key: str,
+    assignee_query: str,
+    timeout: int = 30,
+) -> Dict:
+    """Resolve a Jira assignee `accountId` from a human-friendly query (email or display name fragment).
+
+    Resolution priority (first successful rule wins):
+        1. Exact email match (case-insensitive) if `emailAddress` field present.
+        2. Exact `displayName` match (case-insensitive).
+        3. Single remaining active candidate (when search narrows to exactly one active user).
+        4. Otherwise: return an ambiguity structure with top (≤5) active candidates.
+
+    Args:
+            access_token (str): OAuth bearer token with scopes allowing user search (`read:jira-user`).
+            cloud_id (str): Atlassian Cloud ID identifying the Jira instance.
+            project_key (str): Key of the project to scope assignable user search (ensures only users assignable to the project are returned).
+            assignee_query (str): Email address or display name fragment supplied by caller. Case-insensitive exact comparisons are attempted; fragments return multiple candidates.
+            timeout (int, optional): Network request timeout in seconds for the search API call. Defaults to 30.
+
+    Returns:
+            Dict: One of the following shapes:
+                Successful resolution:
+                    {
+                        "accountId": "abc123",
+                        "resolution_reason": "exact_email_match" | "exact_displayName_match" | "single_candidate",
+                        "displayName": "Jane Doe"
+                    }
+                Ambiguous / no unique resolution:
+                    {
+                        "warning": "Assignee not resolved uniquely",
+                        "query": "jane",
+                        "candidates": [
+                            {"displayName": "Jane Doe", "accountId": "abc123", "email": "jane@example.com"},
+                            ... (≤5)
+                        ]
+                    }
+                Error (network / unexpected):
+                    {
+                        "warning": "User resolution error: <details>",
+                        "query": "jane"
+                    }
+
+    Notes:
+            - Only active users are considered for resolution to avoid selecting deactivated accounts.
+            - Email addresses may be absent due to privacy settings; logic tolerates missing `emailAddress`.
+            - Caller should inspect presence of `accountId` key to determine success vs. ambiguity.
+            - This helper does not mutate state; it performs a single GET request to the assignable users endpoint.
+    """
+    search_url = f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/user/assignable/search"
+    params = {"project": project_key, "maxResults": "20", "query": assignee_query}
+    try:
+        resp = requests.get(
+            search_url,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json",
+            },
+            params=params,
+            timeout=timeout,
+        )
+        if resp.status_code != 200:
+            return {
+                "warning": "User search failed",
+                "status": resp.status_code,
+                "details": resp.text,
+                "query": assignee_query,
+            }
+        candidates = resp.json()
+        active_candidates = [c for c in candidates if c.get("active")]
+        # Email exact match
+        exact_email = [
+            c
+            for c in active_candidates
+            if assignee_query.lower() == (c.get("emailAddress") or "").lower()
+        ]
+        if exact_email:
+            chosen = exact_email[0]
+            return {
+                "accountId": chosen.get("accountId"),
+                "resolution_reason": "exact_email_match",
+                "displayName": chosen.get("displayName"),
+            }
+        # Display name exact match
+        display_matches = [
+            c
+            for c in active_candidates
+            if assignee_query.lower() == (c.get("displayName") or "").lower()
+        ]
+        if display_matches:
+            chosen = display_matches[0]
+            return {
+                "accountId": chosen.get("accountId"),
+                "resolution_reason": "exact_displayName_match",
+                "displayName": chosen.get("displayName"),
+            }
+        # Single candidate fallback
+        if len(active_candidates) == 1:
+            chosen = active_candidates[0]
+            return {
+                "accountId": chosen.get("accountId"),
+                "resolution_reason": "single_candidate",
+                "displayName": chosen.get("displayName"),
+            }
+        # Ambiguous/no match
+        return {
+            "warning": "Assignee not resolved uniquely",
+            "query": assignee_query,
+            "candidates": [
+                {
+                    "displayName": c.get("displayName"),
+                    "accountId": c.get("accountId"),
+                    "email": c.get("emailAddress"),
+                }
+                for c in active_candidates[:5]
+            ],
+        }
+    except Exception as e:
+        return {"warning": f"User resolution error: {e}", "query": assignee_query}
+
+
 @mcp.tool(name="jira_create_issue")
 def jira_create_issue(
     metadata: Dict,
@@ -257,20 +380,22 @@ def jira_create_issue(
     description: str,
     issue_type: str,
     assignee_account_id: Optional[str] = None,
+    assignee_query: Optional[str] = None,
     labels: Optional[List[str]] = None,
     priority: Optional[str] = None,
 ) -> dict:
     """Create a new Jira issue.
 
-    Required:
+    Args:
       - metadata: Jira auth (access_token, cloud_id, optional base_url).
       - project_key: Project key (e.g. "MCPPROJECT").
       - summary: Issue title.
       - description: Plain text converted to ADF.
       - issue_type: Issue type name (e.g. "Task").
 
-    Optional:
-      - assignee_account_id: Cloud accountId for assignee.
+        Optional (assignee resolution priority):
+            - assignee_account_id: Cloud accountId for assignee (used directly if provided).
+            - assignee_query: Email fragment or display name fragment to resolve a single assignable user.
       - labels: List of label strings.
       - priority: Priority name (e.g. "High").
 
@@ -324,9 +449,17 @@ def jira_create_issue(
             "issuetype": {"name": issue_type},
         }
 
-        if assignee_account_id:
-            # Jira Cloud uses accountId for assignment
-            fields["assignee"] = {"accountId": assignee_account_id}
+        resolved_account_id = assignee_account_id
+        resolution_info = None
+        if not resolved_account_id and assignee_query:
+            resolution_info = resolve_jira_assignee(
+                access_token, cloud_id, project_key, assignee_query
+            )
+            if resolution_info.get("accountId"):
+                resolved_account_id = resolution_info.get("accountId")
+
+        if resolved_account_id:
+            fields["assignee"] = {"accountId": resolved_account_id}
         if labels:
             fields["labels"] = labels
         if priority:
@@ -354,19 +487,25 @@ def jira_create_issue(
         key = resp_data.get("key")
         issue_url = f"{site_url}/browse/{key}" if site_url and key else None
 
+        response_payload = {
+            "key": key,
+            "url": issue_url,
+            "summary": summary,
+            "issue_type": issue_type,
+            "assignee_account_id": resolved_account_id,
+            "labels": labels or [],
+            "priority": priority,
+        }
+        if assignee_query is not None:
+            response_payload["assignee_query"] = assignee_query
+        if resolution_info:
+            response_payload["assignee_resolution"] = resolution_info
+
         return make_response(
             True,
             action,
             f"Issue {key} created successfully.",
-            {
-                "key": key,
-                "url": issue_url,
-                "summary": summary,
-                "issue_type": issue_type,
-                "assignee_account_id": assignee_account_id,
-                "labels": labels or [],
-                "priority": priority,
-            },
+            response_payload,
         )
     except Exception as e:
         return make_response(False, action, f"Error creating issue: {str(e)}")

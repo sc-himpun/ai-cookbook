@@ -55,7 +55,7 @@ class MCPOpenAIClient:
             # "odata": "http://localhost:8016/mcp-server/sse/",
             #"asana": "http://localhost:8011/mcp-server/sse/",
             #"asana": "https://mcp.asana.com/sse",
-            # "youtrack": "http://localhost:8089/mcp-server/sse",
+            "youtrack": "http://localhost:8089/mcp-server/sse",
             #"salesforce": "http://localhost:8091/mcp-server/sse",
             # "confluence": "http://localhost:8071/mcp-server/sse",
             # "zoom": "http://localhost:8019/mcp-server/sse",
