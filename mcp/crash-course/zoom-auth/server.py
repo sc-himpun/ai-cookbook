@@ -51,6 +51,37 @@ def make_response(success: bool, action: str, message: str, data=None):
     }
 
 
+def safe_json(resp: requests.Response) -> Dict:
+    """
+    Safely parse a JSON response.
+
+    Args:
+        resp (requests.Response): The HTTP response object to parse.
+
+    Returns:
+        Dict: Parsed JSON dictionary if valid, otherwise an empty dict.
+
+    This helper only tries to parse JSON when:
+        - Status code is not 204
+        - Response body is non-empty
+        - Content-Type header indicates JSON
+
+    Otherwise it returns an empty dict.
+    """
+    if resp.status_code == 204:
+        return {}
+    text = resp.text or ""
+    if not text.strip():
+        return {}
+    content_type = resp.headers.get("Content-Type", "")
+    if "json" not in content_type.lower():
+        return {}
+    try:
+        return resp.json()
+    except Exception:
+        return {}
+
+
 def refresh_zoom_token(refresh_token: str) -> Optional[Dict]:
     """
     Refreshes the Zoom OAuth access token using the provided refresh token.
@@ -347,15 +378,23 @@ def reschedule_meeting(
         "timezone": "UTC",
     }
     r = requests.patch(url, headers=get_auth_headers(metadata), json=payload)
+    if r.status_code == 204:
+        return make_response(
+            True,
+            "zoom_reschedule_meeting",
+            "✅ Meeting rescheduled successfully (204 No Content).",
+            {},
+        )
     if not r.ok:
         return make_response(
             False, "zoom_reschedule_meeting", f"❌ {r.status_code} {r.text}"
         )
+    data = safe_json(r)
     return make_response(
         True,
         "zoom_reschedule_meeting",
         "✅ Meeting rescheduled successfully.",
-        r.json(),
+        data,
     )
 
 
