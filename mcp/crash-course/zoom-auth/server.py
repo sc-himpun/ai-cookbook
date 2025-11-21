@@ -78,7 +78,7 @@ def safe_json(resp: requests.Response) -> Dict:
         return {}
     try:
         return resp.json()
-    except Exception:
+    except (requests.exceptions.JSONDecodeError, ValueError):
         return {}
 
 
@@ -274,7 +274,7 @@ def get_meeting_transcript(metadata: Dict, meeting_id: str) -> Dict:
     url = f"https://api.zoom.us/v2/meetings/{meeting_id}/recordings"
     r = requests.get(url, headers=get_auth_headers(metadata))
     if not r.ok:
-        return f"Error: {r.status_code} {r.text}"
+        return make_response(False, "zoom_get_meeting_transcript", f"Error: {r.status_code} {r.text}")
     data = r.json()
     transcript_files = [
         {"file_type": f["file_type"], "download_url": f["download_url"]}
@@ -378,13 +378,6 @@ def reschedule_meeting(
         "timezone": "UTC",
     }
     r = requests.patch(url, headers=get_auth_headers(metadata), json=payload)
-    if r.status_code == 204:
-        return make_response(
-            True,
-            "zoom_reschedule_meeting",
-            "✅ Meeting rescheduled successfully (204 No Content).",
-            {},
-        )
     if not r.ok:
         return make_response(
             False, "zoom_reschedule_meeting", f"❌ {r.status_code} {r.text}"
