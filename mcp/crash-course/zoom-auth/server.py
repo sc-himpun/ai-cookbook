@@ -219,8 +219,7 @@ def list_meetings(
     List meetings for a Zoom user with filters for meeting type, user ID, and pagination.
 
     This tool is useful for retrieving different categories of meetings (upcoming, live, past, or scheduled)
-    for any authenticated Zoom user. It supports backend automation such as surfacing relevant meetings,
-    checking live sessions, or fetching history for reporting.
+    for any authenticated Zoom user. By default it returns only upcoming meetings.
 
     Args:
         metadata (Dict):
@@ -283,8 +282,17 @@ def list_meetings(
         return make_response(
             False, "zoom_list_meetings", f"❌ {r.status_code} {r.text}"
         )
+    data = r.json()
+
+    # Normalize timezone field to avoid LLM confusion
+    for meeting in data.get("meetings", []):
+        meeting["timezone"] = "UTC"  # Force UTC since start_time is always UTC
+
     return make_response(
-        True, "zoom_list_meetings", "✅ Retrieved meetings list.", r.json()
+        True,
+        "zoom_list_meetings",
+        "✅ Retrieved meetings list (all times in UTC).",
+        data,
     )
 
 
