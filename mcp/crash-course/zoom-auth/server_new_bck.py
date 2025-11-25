@@ -4,6 +4,7 @@ import json
 import os
 from datetime import datetime, timedelta
 from typing import Dict, Optional
+from zoneinfo import ZoneInfo
 
 import requests
 from dotenv import load_dotenv
@@ -23,9 +24,15 @@ REDIRECT_URI = os.getenv(
 )
 SCOPES = os.getenv(
     "ZOOM_SCOPES",
-    "user:read meeting:read meeting:write chat_message:write:admin chat_channel:read:admin",
+    (
+        "user:read meeting:read meeting:write "
+        "chat_message:write:admin chat_channel:read:admin"
+    ),
 ).split()
-print(f"🔑 Using CLIENT_ID={CLIENT_ID}, REDIRECT_URI={REDIRECT_URI}, SCOPES={SCOPES}")
+print(
+    f"🔑 Using CLIENT_ID={CLIENT_ID}, REDIRECT_URI={REDIRECT_URI}, "
+    f"SCOPES={SCOPES}"
+)
 mcp = FastMCP("zoom-mcp")
 
 
@@ -91,7 +98,10 @@ def refresh_zoom_token(refresh_token: str) -> Optional[Dict]:
         Optional[Dict]: The new token dictionary if successful, None otherwise.
     """
     headers = {
-        "Authorization": f"Basic {base64.b64encode(f'{CLIENT_ID}:{CLIENT_SECRET}'.encode()).decode()}",
+        "Authorization": (
+            "Basic "
+            + base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+        ),
         "Content-Type": "application/x-www-form-urlencoded",
     }
     data = {"grant_type": "refresh_token", "refresh_token": refresh_token}
@@ -104,11 +114,13 @@ def refresh_zoom_token(refresh_token: str) -> Optional[Dict]:
 
 def get_zoom_creds(metadata: Optional[Dict]) -> Optional[Dict]:
     """
-    Extracts Zoom credentials from the provided metadata and refreshes the access token if expired.
+    Extracts Zoom credentials from the provided metadata and refreshes
+    the access token if expired.
     Args:
         metadata (Optional[Dict]): Metadata containing Zoom credentials.
     Returns:
-        Optional[Dict]: Dictionary with email, access_token, and refresh_token if valid, None otherwise.
+    Optional[Dict]: Dictionary with email, access_token, and refresh_token
+    if valid, None otherwise.
     """
     if not metadata:
         return None
@@ -139,7 +151,9 @@ def get_zoom_creds(metadata: Optional[Dict]) -> Optional[Dict]:
             return {
                 "email": email,
                 "access_token": new_tokens["access_token"],
-                "refresh_token": new_tokens.get("refresh_token", refresh_token),
+                "refresh_token": new_tokens.get(
+                    "refresh_token", refresh_token
+                ),
             }
     return None
 
@@ -173,7 +187,8 @@ def list_chat_channels(metadata: Dict) -> Dict:
         metadata (Dict): Metadata containing Zoom credentials.
 
     Returns:
-        dict: Standardized response containing the list of chat channels or error details.
+    dict: Standardized response containing the list of chat channels
+    or error details.
     """
     url = "https://api.zoom.us/v2/chat/users/me/channels"
     r = requests.get(url, headers=get_auth_headers(metadata))
@@ -207,84 +222,72 @@ def send_chat_message(metadata: Dict, to_channel: str, message: str) -> Dict:
             False, "zoom_send_chat_message", f"❌ {r.status_code} {r.text}"
         )
     return make_response(
-        True, "zoom_send_chat_message", "✅ Message sent successfully.", r.json()
+        True,
+        "zoom_send_chat_message",
+        "✅ Message sent successfully.",
+        r.json(),
     )
 
 
 @mcp.tool(name="zoom_list_meetings")
-def list_meetings(
-    metadata: Dict, user_id: str = "me", type: str = "upcoming", page_size: int = 30
-) -> Dict:
+def list_meetings(metadata: Dict, user_id: str = "me") -> Dict:
     """
-    List meetings for a Zoom user with filters for meeting type, user ID, and pagination.
-
-    This tool is useful for retrieving different categories of meetings (upcoming, live, past, or scheduled)
-    for any authenticated Zoom user. It supports backend automation such as surfacing relevant meetings,
-    checking live sessions, or fetching history for reporting.
+    List meetings for a Zoom user.
 
     Args:
-        metadata (Dict):
-            Metadata containing Zoom OAuth or JWT credentials. Must include the access token
-            used to authenticate Zoom API calls.
-
-        user_id (str, optional):
-            The Zoom user ID whose meetings you want to fetch.
-            Use `"me"` (default) when the authenticated user is the target.
-            Use an explicit user ID when querying meetings of another managed user in the Zoom account.
-
-        type (str, optional):
-            Filter for the category of meetings to be returned. Accepted values:
-
-            • **"upcoming"** – Meetings that are scheduled for the future.
-            Use this to show the user's upcoming schedule.
-
-            • **"scheduled"** – All scheduled meetings regardless of time.
-            Use this when you want a canonical list of all created meetings.
-
-            • **"live"** – Meetings that are currently in progress (running).
-            Useful for real-time dashboards or monitoring.
-
-            • **"history"** – Past meetings that have already ended.
-            Use this for reporting, analytics, or reviewing previous sessions.
-
-            Defaults to `"upcoming"`.
-
-        page_size (int, optional):
-            Maximum number of results to return per API page.
-            Larger values reduce pagination overhead; smaller values are helpful for streaming or
-            selective retrieval. Defaults to 30.
+        metadata (Dict): Metadata containing Zoom credentials.
+        user_id (str, optional): Zoom user ID. Defaults to "me".
 
     Returns:
-        Dict:
-            A standardized response dictionary containing:
-            - `success`: Boolean indicating whether the request succeeded.
-            - `tool`: Name of the tool ("zoom_list_meetings").
-            - `message`: Human-readable status message.
-            - `data`: The Zoom API response (`meetings` list and pagination info), when successful.
-
-    Examples:
-        # Get upcoming meetings (default)
-        list_meetings(metadata)
-
-        # Get all scheduled meetings
-        list_meetings(metadata, type="scheduled")
-
-        # Fetch currently running meetings
-        list_meetings(metadata, type="live")
-
-        # Fetch past meetings with a custom page size
-        list_meetings(metadata, type="history", page_size=10)
+        dict: Standardized response containing meeting details or error info.
     """
-
     url = f"https://api.zoom.us/v2/users/{user_id}/meetings"
-    params = {"type": type, "page_size": page_size}
-    r = requests.get(url, headers=get_auth_headers(metadata), params=params)
+    r = requests.get(url, headers=get_auth_headers(metadata))
     if not r.ok:
         return make_response(
             False, "zoom_list_meetings", f"❌ {r.status_code} {r.text}"
         )
+    data = r.json()
+    meetings = data.get("meetings", [])
+
+    def to_utc(start_time: str, tz: str | None) -> str:
+        """Convert a Zoom meeting start_time + timezone to UTC ISO string.
+
+        Adds a Z suffix.
+        """
+        if not start_time:
+            return ""
+        # Already UTC if ends with Z
+        if start_time.endswith("Z"):
+            return start_time
+        try:
+            dt = datetime.fromisoformat(start_time)
+            if tz:
+                try:
+                    dt = dt.replace(tzinfo=ZoneInfo(tz))
+                except Exception:
+                    # Fallback: treat as UTC if timezone invalid
+                    dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+            elif dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+            return dt.astimezone(ZoneInfo("UTC")).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+        except Exception:
+            return start_time  # return original if parsing fails
+
+    for m in meetings:
+        original = m.get("start_time")
+        tz = m.get("timezone") or data.get("timezone")
+        m["start_time_original"] = original
+        m["start_time_utc"] = to_utc(original, tz)
+
+    data["meetings"] = meetings
     return make_response(
-        True, "zoom_list_meetings", "✅ Retrieved meetings list.", r.json()
+        True,
+        "zoom_list_meetings",
+        "✅ Meetings list with UTC conversion (start_time_utc added).",
+        data,
     )
 
 
@@ -297,7 +300,8 @@ def get_current_utc_time(metadata: Dict = {}) -> Dict:
         metadata (Dict, optional): Metadata (not used).
 
     Returns:
-        dict: Standardized response containing the current UTC time and one hour later.
+    dict: Standardized response containing the current UTC time and
+    one hour later.
     """
     now = datetime.utcnow()
     one_hour_later = now + timedelta(hours=1)
@@ -323,13 +327,16 @@ def get_meeting_transcript(metadata: Dict, meeting_id: str) -> Dict:
         meeting_id (str): Zoom meeting ID.
 
     Returns:
-        dict: Standardized response with transcript URLs or a message if none found.
+    dict: Standardized response with transcript URLs or a message if
+    none found.
     """
     url = f"https://api.zoom.us/v2/meetings/{meeting_id}/recordings"
     r = requests.get(url, headers=get_auth_headers(metadata))
     if not r.ok:
         return make_response(
-            False, "zoom_get_meeting_transcript", f"Error: {r.status_code} {r.text}"
+            False,
+            "zoom_get_meeting_transcript",
+            f"Error: {r.status_code} {r.text}",
         )
     data = r.json()
     transcript_files = [
@@ -339,7 +346,10 @@ def get_meeting_transcript(metadata: Dict, meeting_id: str) -> Dict:
     ]
     if not transcript_files:
         return make_response(
-            True, "zoom_get_meeting_transcript", "ℹ️ No transcript files found.", []
+            True,
+            "zoom_get_meeting_transcript",
+            "ℹ️ No transcript files found.",
+            [],
         )
     return make_response(
         True,
@@ -364,7 +374,8 @@ def create_meeting(
         duration (int): Meeting duration in minutes.
 
     Returns:
-        dict: Standardized response containing the created meeting details or error info.
+    dict: Standardized response containing the created meeting details
+    or error info.
     """
     url = f"https://api.zoom.us/v2/users/{user_id}/meetings"
     payload = {
@@ -381,7 +392,10 @@ def create_meeting(
             False, "zoom_create_meeting", f"❌ {r.status_code} {r.text}"
         )
     return make_response(
-        True, "zoom_create_meeting", "✅ Meeting created successfully.", r.json()
+        True,
+        "zoom_create_meeting",
+        "✅ Meeting created successfully.",
+        r.json(),
     )
 
 
@@ -395,7 +409,8 @@ def get_meeting_recordings(metadata: Dict, meeting_id: str) -> Dict:
         meeting_id (str): Zoom meeting ID.
 
     Returns:
-        dict: Standardized response containing recording metadata or error info.
+    dict: Standardized response containing recording metadata or
+    error info.
     """
     url = f"https://api.zoom.us/v2/meetings/{meeting_id}/recordings"
     r = requests.get(url, headers=get_auth_headers(metadata))
@@ -466,6 +481,61 @@ def cancel_meeting(metadata: Dict, meeting_id: str) -> Dict:
             True, "zoom_cancel_meeting", f"✅ Meeting {meeting_id} cancelled."
         )
     return make_response(False, "zoom_cancel_meeting", f"❌ {r.status_code} {r.text}")
+
+
+@mcp.tool(name="zoom_list_recent_meetings")
+def list_recent_meetings(metadata: Dict, user_id: str = "me") -> Dict:
+    """
+    List recent scheduled meetings for a Zoom user.
+
+    Args:
+        metadata (Dict): Metadata containing Zoom credentials.
+        user_id (str, optional): Zoom user ID. Defaults to "me".
+
+    Returns:
+        dict: Standardized response containing recent meetings or error info.
+    """
+    url = f"https://api.zoom.us/v2/users/{user_id}/meetings"
+    params = {"type": "scheduled", "page_size": 30}
+    r = requests.get(url, headers=get_auth_headers(metadata), params=params)
+    if not r.ok:
+        return make_response(
+            False, "zoom_list_recent_meetings", f"❌ {r.status_code} {r.text}"
+        )
+    data = r.json()
+    meetings = data.get("meetings", [])
+
+    def to_utc(start_time: str, tz: str | None) -> str:
+        if not start_time:
+            return ""
+        if start_time.endswith("Z"):
+            return start_time
+        try:
+            dt = datetime.fromisoformat(start_time)
+            if tz:
+                try:
+                    dt = dt.replace(tzinfo=ZoneInfo(tz))
+                except Exception:
+                    dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+            elif dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+            return dt.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            return start_time
+
+    for m in meetings:
+        original = m.get("start_time")
+        tz = m.get("timezone") or data.get("timezone")
+        m["start_time_original"] = original
+        m["start_time_utc"] = to_utc(original, tz)
+
+    data["meetings"] = meetings
+    return make_response(
+        True,
+        "zoom_list_recent_meetings",
+        "✅ Retrieved recent scheduled meetings with UTC conversion (start_time_utc added).",
+        data,
+    )
 
 
 def build_auth_url() -> str:
