@@ -220,6 +220,7 @@ def list_meetings(
 
     This tool is useful for retrieving different categories of meetings (upcoming, live, past, or scheduled)
     for any authenticated Zoom user. By default it returns only upcoming meetings.
+    Note: Timestamps returned for meetings (in start_time, created_at etc. fields) are always in UTC.
 
     Args:
         metadata (Dict):
