@@ -351,7 +351,7 @@ def get_meeting_transcript(metadata: Dict, meeting_id: str) -> Dict:
 
 @mcp.tool(name="zoom_create_meeting")
 def create_meeting(
-    metadata: Dict, user_id: str, topic: str, start_time: str, duration: int
+    metadata: Dict, user_id: str, topic: str, start_time: str, duration: int = 30
 ) -> Dict:
     """
     Create a Zoom meeting.
